@@ -23,7 +23,7 @@
  * @file
  * Intel Indeo 2 decoder.
  */
-#define ALT_BITSTREAM_READER_LE
+#define BITSTREAM_READER_LE
 #include "avcodec.h"
 #include "get_bits.h"
 #include "indeo2data.h"
@@ -146,23 +146,29 @@ static int ir2_decode_frame(AVCodecContext *avctx,
     AVFrame * const p= (AVFrame*)&s->picture;
     int start;
 
-    p->reference = 1;
+    p->reference = 3;
     p->buffer_hints = FF_BUFFER_HINTS_VALID | FF_BUFFER_HINTS_PRESERVE | FF_BUFFER_HINTS_REUSABLE;
     if (avctx->reget_buffer(avctx, p)) {
         av_log(s->avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
         return -1;
     }
 
+    start = 48; /* hardcoded for now */
+
+    if (start >= buf_size) {
+        av_log(s->avctx, AV_LOG_ERROR, "input buffer size too small (%d)\n", buf_size);
+        return AVERROR_INVALIDDATA;
+    }
+
     s->decode_delta = buf[18];
 
     /* decide whether frame uses deltas or not */
-#ifndef ALT_BITSTREAM_READER_LE
+#ifndef BITSTREAM_READER_LE
     for (i = 0; i < buf_size; i++)
         buf[i] = av_reverse[buf[i]];
 #endif
-    start = 48; /* hardcoded for now */
 
-    init_get_bits(&s->gb, buf + start, buf_size - start);
+    init_get_bits(&s->gb, buf + start, (buf_size - start) * 8);
 
     if (s->decode_delta) { /* intraframe */
         ir2_decode_plane(s, avctx->width, avctx->height,
@@ -199,7 +205,7 @@ static av_cold int ir2_decode_init(AVCodecContext *avctx){
 
     ir2_vlc.table = vlc_tables;
     ir2_vlc.table_allocated = 1 << CODE_VLC_BITS;
-#ifdef ALT_BITSTREAM_READER_LE
+#ifdef BITSTREAM_READER_LE
         init_vlc(&ir2_vlc, CODE_VLC_BITS, IR2_CODES,
                  &ir2_codes[0][1], 4, 2,
                  &ir2_codes[0][0], 4, 2, INIT_VLC_USE_NEW_STATIC | INIT_VLC_LE);

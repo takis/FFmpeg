@@ -27,13 +27,12 @@
 #include "libavutil/bswap.h"
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 
 #define MTV_ASUBCHUNK_DATA_SIZE 500
 #define MTV_HEADER_SIZE 512
 #define MTV_AUDIO_PADDING_SIZE 12
 #define AUDIO_SAMPLING_RATE 44100
-#define VIDEO_SID 0
-#define AUDIO_SID 1
 
 typedef struct MTVDemuxContext {
 
@@ -97,16 +96,26 @@ static int mtv_read_header(AVFormatContext *s, AVFormatParameters *ap)
 
     /* Calculate width and height if missing from header */
 
-    if(!mtv->img_width)
+    if(mtv->img_bpp>>3){
+    if(!mtv->img_width && mtv->img_height)
         mtv->img_width=mtv->img_segment_size / (mtv->img_bpp>>3)
                         / mtv->img_height;
 
-    if(!mtv->img_height)
+    if(!mtv->img_height && mtv->img_width)
         mtv->img_height=mtv->img_segment_size / (mtv->img_bpp>>3)
                         / mtv->img_width;
+    }
+    if(!mtv->img_height || !mtv->img_width){
+        av_log(s, AV_LOG_ERROR, "width or height is invalid and I cannot calculate them from other information\n");
+        return AVERROR(EINVAL);
+    }
 
     avio_skip(pb, 4);
     audio_subsegments = avio_rl16(pb);
+    if(!audio_subsegments){
+        av_log(s, AV_LOG_ERROR, "audio_subsegments is 0\n");
+        return AVERROR(EINVAL);
+    }
     mtv->full_segment_size =
         audio_subsegments * (MTV_AUDIO_PADDING_SIZE + MTV_ASUBCHUNK_DATA_SIZE) +
         mtv->img_segment_size;
@@ -118,11 +127,11 @@ static int mtv_read_header(AVFormatContext *s, AVFormatParameters *ap)
 
     // video - raw rgb565
 
-    st = av_new_stream(s, VIDEO_SID);
+    st = avformat_new_stream(s, NULL);
     if(!st)
         return AVERROR(ENOMEM);
 
-    av_set_pts_info(st, 64, 1, mtv->video_fps);
+    avpriv_set_pts_info(st, 64, 1, mtv->video_fps);
     st->codec->codec_type      = AVMEDIA_TYPE_VIDEO;
     st->codec->codec_id        = CODEC_ID_RAWVIDEO;
     st->codec->pix_fmt         = PIX_FMT_RGB565;
@@ -134,11 +143,11 @@ static int mtv_read_header(AVFormatContext *s, AVFormatParameters *ap)
 
     // audio - mp3
 
-    st = av_new_stream(s, AUDIO_SID);
+    st = avformat_new_stream(s, NULL);
     if(!st)
         return AVERROR(ENOMEM);
 
-    av_set_pts_info(st, 64, 1, AUDIO_SAMPLING_RATE);
+    avpriv_set_pts_info(st, 64, 1, AUDIO_SAMPLING_RATE);
     st->codec->codec_type      = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id        = CODEC_ID_MP3;
     st->codec->bit_rate        = mtv->audio_br;
@@ -171,7 +180,7 @@ static int mtv_read_packet(AVFormatContext *s, AVPacket *pkt)
             return ret;
 
         pkt->pos -= MTV_AUDIO_PADDING_SIZE;
-        pkt->stream_index = AUDIO_SID;
+        pkt->stream_index = 1;
 
     }else
     {
@@ -187,10 +196,10 @@ static int mtv_read_packet(AVFormatContext *s, AVPacket *pkt)
          * just swap bytes as they come
          */
 
-        for(i=0;i<mtv->img_segment_size/2;i++)
+        for(i=0;i<ret/2;i++)
             *((uint16_t *)pkt->data+i) = av_bswap16(*((uint16_t *)pkt->data+i));
 #endif
-        pkt->stream_index = VIDEO_SID;
+        pkt->stream_index = 0;
     }
 
     return ret;

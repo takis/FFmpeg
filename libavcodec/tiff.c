@@ -102,6 +102,46 @@ static int tiff_uncompress(uint8_t *dst, unsigned long *len, const uint8_t *src,
 }
 #endif
 
+static void av_always_inline horizontal_fill(unsigned int bpp, uint8_t* dst,
+                                             int usePtr, const uint8_t *src,
+                                             uint8_t c, int width, int offset)
+{
+    switch (bpp) {
+    case 1:
+        while (--width >= 0) {
+            dst[(width+offset)*8+7] = (usePtr ? src[width] : c)      & 0x1;
+            dst[(width+offset)*8+6] = (usePtr ? src[width] : c) >> 1 & 0x1;
+            dst[(width+offset)*8+5] = (usePtr ? src[width] : c) >> 2 & 0x1;
+            dst[(width+offset)*8+4] = (usePtr ? src[width] : c) >> 3 & 0x1;
+            dst[(width+offset)*8+3] = (usePtr ? src[width] : c) >> 4 & 0x1;
+            dst[(width+offset)*8+2] = (usePtr ? src[width] : c) >> 5 & 0x1;
+            dst[(width+offset)*8+1] = (usePtr ? src[width] : c) >> 6 & 0x1;
+            dst[(width+offset)*8+0] = (usePtr ? src[width] : c) >> 7;
+        }
+        break;
+    case 2:
+        while (--width >= 0) {
+            dst[(width+offset)*4+3] = (usePtr ? src[width] : c) & 0x3;
+            dst[(width+offset)*4+2] = (usePtr ? src[width] : c) >> 2 & 0x3;
+            dst[(width+offset)*4+1] = (usePtr ? src[width] : c) >> 4 & 0x3;
+            dst[(width+offset)*4+0] = (usePtr ? src[width] : c) >> 6;
+        }
+        break;
+    case 4:
+        while (--width >= 0) {
+            dst[(width+offset)*2+1] = (usePtr ? src[width] : c) & 0xF;
+            dst[(width+offset)*2+0] = (usePtr ? src[width] : c) >> 4;
+        }
+        break;
+    default:
+        if (usePtr) {
+            memcpy(dst + offset, src, width);
+        } else {
+            memset(dst + offset, c, width);
+        }
+    }
+}
+
 static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uint8_t *src, int size, int lines){
     int c, line, pixels, code;
     const uint8_t *ssrc = src;
@@ -121,7 +161,11 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
         }
         src = zbuf;
         for(line = 0; line < lines; line++){
-            memcpy(dst, src, width);
+            if(s->bpp < 8 && s->avctx->pix_fmt == PIX_FMT_PAL8){
+                horizontal_fill(s->bpp, dst, 1, src, 0, width, 0);
+            }else{
+                memcpy(dst, src, width);
+            }
             dst += stride;
             src += width;
         }
@@ -162,6 +206,11 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
             ret = ff_ccitt_unpack(s->avctx, src2, size, dst, lines, stride, s->compr, s->fax_opts);
             break;
         }
+        if (s->bpp < 8 && s->avctx->pix_fmt == PIX_FMT_PAL8)
+            for (line = 0; line < lines; line++) {
+                horizontal_fill(s->bpp, dst, 1, dst, 0, width, 0);
+                dst += stride;
+            }
         av_free(src2);
         return ret;
     }
@@ -172,8 +221,11 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
         }
         switch(s->compr){
         case TIFF_RAW:
+            if (ssrc + size - src < width)
+                return AVERROR_INVALIDDATA;
             if (!s->fill_order) {
-                memcpy(dst, src, width);
+                horizontal_fill(s->bpp * (s->avctx->pix_fmt == PIX_FMT_PAL8),
+                                dst, 1, src, 0, width, 0);
             } else {
                 int i;
                 for (i = 0; i < width; i++)
@@ -190,7 +242,8 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
                         av_log(s->avctx, AV_LOG_ERROR, "Copy went out of bounds\n");
                         return -1;
                     }
-                    memcpy(dst + pixels, src, code);
+                    horizontal_fill(s->bpp * (s->avctx->pix_fmt == PIX_FMT_PAL8),
+                                    dst, 1, src, 0, code, pixels);
                     src += code;
                     pixels += code;
                 }else if(code != -128){ // -127..-1
@@ -200,7 +253,8 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
                         return -1;
                     }
                     c = *src++;
-                    memset(dst + pixels, c, code);
+                    horizontal_fill(s->bpp * (s->avctx->pix_fmt == PIX_FMT_PAL8),
+                                    dst, 0, NULL, c, code, pixels);
                     pixels += code;
                 }
             }
@@ -211,6 +265,8 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t* dst, int stride, const uin
                 av_log(s->avctx, AV_LOG_ERROR, "Decoded only %i bytes of %i\n", pixels, width);
                 return -1;
             }
+            if (s->bpp < 8 && s->avctx->pix_fmt == PIX_FMT_PAL8)
+                horizontal_fill(s->bpp, dst, 1, dst, 0, width, 0);
             break;
         }
         dst += stride;
@@ -225,8 +281,12 @@ static int init_image(TiffContext *s)
 
     switch (s->bpp * 10 + s->bppcount) {
     case 11:
-        s->avctx->pix_fmt = PIX_FMT_MONOBLACK;
-        break;
+        if (!s->palette_is_set) {
+            s->avctx->pix_fmt = PIX_FMT_MONOBLACK;
+            break;
+        }
+    case 21:
+    case 41:
     case 81:
         s->avctx->pix_fmt = PIX_FMT_PAL8;
         break;
@@ -265,8 +325,8 @@ static int init_image(TiffContext *s)
         } else {
             /* make default grayscale pal */
             pal = (uint32_t *) s->picture.data[1];
-            for (i = 0; i < 256; i++)
-                pal[i] = i * 0x010101;
+            for (i = 0; i < 1<<s->bpp; i++)
+                pal[i] = 0xFF << 24 | i * 255 / ((1<<s->bpp) - 1) * 0x010101;
         }
     }
     return 0;
@@ -279,6 +339,8 @@ static int tiff_decode_tag(TiffContext *s, const uint8_t *start, const uint8_t *
     uint32_t *pal;
     const uint8_t *rp, *gp, *bp;
 
+    if (end_buf - buf < 12)
+        return -1;
     tag = tget_short(&buf, s->le);
     type = tget_short(&buf, s->le);
     count = tget_long(&buf, s->le);
@@ -338,7 +400,7 @@ static int tiff_decode_tag(TiffContext *s, const uint8_t *start, const uint8_t *
             case TIFF_SHORT:
             case TIFF_LONG:
                 s->bpp = 0;
-                for(i = 0; i < count; i++) s->bpp += tget(&buf, type, s->le);
+                for(i = 0; i < count && buf < end_buf; i++) s->bpp += tget(&buf, type, s->le);
                 break;
             default:
                 s->bpp = -1;
@@ -452,6 +514,8 @@ static int tiff_decode_tag(TiffContext *s, const uint8_t *start, const uint8_t *
     case TIFF_PAL:
         pal = (uint32_t *) s->palette;
         off = type_sizes[type];
+        if (count / 3 > 256 || end_buf - buf < count / 3 * off * 3)
+            return -1;
         rp = buf;
         gp = buf + count / 3 * off;
         bp = buf + count / 3 * off * 2;
@@ -495,12 +559,16 @@ static int decode_frame(AVCodecContext *avctx,
     AVFrame *picture = data;
     AVFrame * const p= (AVFrame*)&s->picture;
     const uint8_t *orig_buf = buf, *end_buf = buf + buf_size;
-    int id, le, off, ret;
+    unsigned off;
+    int id, le, ret;
     int i, j, entries;
-    int stride, soff, ssize;
+    int stride;
+    unsigned soff, ssize;
     uint8_t *dst;
 
     //parse image header
+    if (end_buf - buf < 8)
+        return AVERROR_INVALIDDATA;
     id = AV_RL16(buf); buf += 2;
     if(id == 0x4949) le = 1;
     else if(id == 0x4D4D) le = 0;
@@ -520,9 +588,9 @@ static int decode_frame(AVCodecContext *avctx,
     }
     /* parse image file directory */
     off = tget_long(&buf, le);
-    if(orig_buf + off + 14 >= end_buf){
+    if (off >= UINT_MAX - 14 || end_buf - orig_buf < off + 14) {
         av_log(avctx, AV_LOG_ERROR, "IFD offset is greater than image size\n");
-        return -1;
+        return AVERROR_INVALIDDATA;
     }
     buf = orig_buf + off;
     entries = tget_short(&buf, le);
@@ -546,23 +614,23 @@ static int decode_frame(AVCodecContext *avctx,
     stride = p->linesize[0];
     dst = p->data[0];
     for(i = 0; i < s->height; i += s->rps){
-        if(s->stripsizes)
+        if(s->stripsizes) {
+            if (s->stripsizes >= end_buf)
+                return AVERROR_INVALIDDATA;
             ssize = tget(&s->stripsizes, s->sstype, s->le);
-        else
+        } else
             ssize = s->stripsize;
 
-        if (ssize > buf_size) {
-            av_log(avctx, AV_LOG_ERROR, "Buffer size is smaller than strip size\n");
-            return -1;
-        }
-
         if(s->stripdata){
+            if (s->stripdata >= end_buf)
+                return AVERROR_INVALIDDATA;
             soff = tget(&s->stripdata, s->sot, s->le);
         }else
             soff = s->stripoff;
-        if (soff < 0) {
-            av_log(avctx, AV_LOG_ERROR, "Invalid stripoff: %d\n", soff);
-            return AVERROR(EINVAL);
+
+        if (soff > buf_size || ssize > buf_size - soff) {
+            av_log(avctx, AV_LOG_ERROR, "Invalid strip size/offset\n");
+            return -1;
         }
         if(tiff_unpack_strip(s, dst, stride, orig_buf + soff, ssize, FFMIN(s->rps, s->height - i)) < 0)
             break;
@@ -572,22 +640,33 @@ static int decode_frame(AVCodecContext *avctx,
         dst = p->data[0];
         soff = s->bpp >> 3;
         ssize = s->width * soff;
-        for(i = 0; i < s->height; i++) {
-            for(j = soff; j < ssize; j++)
-                dst[j] += dst[j - soff];
-            dst += stride;
+        if (s->avctx->pix_fmt == PIX_FMT_RGB48LE) {
+            for (i = 0; i < s->height; i++) {
+                for (j = soff; j < ssize; j += 2)
+                    AV_WL16(dst + j, AV_RL16(dst + j) + AV_RL16(dst + j - soff));
+                dst += stride;
+            }
+        } else if (s->avctx->pix_fmt == PIX_FMT_RGB48BE) {
+            for (i = 0; i < s->height; i++) {
+                for (j = soff; j < ssize; j += 2)
+                    AV_WB16(dst + j, AV_RB16(dst + j) + AV_RB16(dst + j - soff));
+                dst += stride;
+            }
+        } else {
+            for(i = 0; i < s->height; i++) {
+                for(j = soff; j < ssize; j++)
+                    dst[j] += dst[j - soff];
+                dst += stride;
+            }
         }
     }
 
     if(s->invert){
-        uint8_t *src;
-        int j;
-
-        src = s->picture.data[0];
-        for(j = 0; j < s->height; j++){
-            for(i = 0; i < s->picture.linesize[0]; i++)
-                src[i] = 255 - src[i];
-            src += s->picture.linesize[0];
+        dst = s->picture.data[0];
+        for(i = 0; i < s->height; i++){
+            for(j = 0; j < s->picture.linesize[0]; j++)
+                dst[j] = (s->avctx->pix_fmt == PIX_FMT_PAL8 ? (1<<s->bpp) - 1 : 255) - dst[j];
+            dst += s->picture.linesize[0];
         }
     }
     *picture= *(AVFrame*)&s->picture;

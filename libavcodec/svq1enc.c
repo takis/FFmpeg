@@ -113,10 +113,6 @@ static void svq1_write_header(SVQ1Context *s, int frame_type)
 #define QUALITY_THRESHOLD 100
 #define THRESHOLD_MULTIPLIER 0.6
 
-#if HAVE_ALTIVEC
-#undef vector
-#endif
-
 static int encode_block(SVQ1Context *s, uint8_t *src, uint8_t *ref, uint8_t *decoded, int stride, int level, int threshold, int lambda, int intra){
     int count, y, x, i, j, split, best_mean, best_score, best_count;
     int best_vector[6];
@@ -160,7 +156,7 @@ static int encode_block(SVQ1Context *s, uint8_t *src, uint8_t *ref, uint8_t *dec
     }
 
     best_count=0;
-    best_score -= ((block_sum[0]*block_sum[0])>>(level+3));
+    best_score -= (int)(((unsigned)block_sum[0]*block_sum[0])>>(level+3));
     best_mean= (block_sum[0] + (size>>1)) >> (level+3);
 
     if(level<4){
@@ -461,7 +457,7 @@ static int svq1_encode_plane(SVQ1Context *s, int plane, unsigned char *src_plane
             s->rd_total += score[best];
 
             for(i=5; i>=0; i--){
-                ff_copy_bits(&s->pb, reorder_buffer[best][i], count[best][i]);
+                avpriv_copy_bits(&s->pb, reorder_buffer[best][i], count[best][i]);
             }
             if(best==0){
                 s->dsp.put_pixels_tab[0][0](decoded, temp, stride, 16);
@@ -540,7 +536,7 @@ static int svq1_encode_frame(AVCodecContext *avctx, unsigned char *buf,
                 return -1;
     }
 
-//    align_put_bits(&s->pb);
+//    avpriv_align_put_bits(&s->pb);
     while(put_bits_count(&s->pb) & 31)
         put_bits(&s->pb, 1, 0);
 
@@ -567,6 +563,10 @@ static av_cold int svq1_encode_end(AVCodecContext *avctx)
         av_freep(&s->motion_val8[i]);
         av_freep(&s->motion_val16[i]);
     }
+    if(s->current_picture.data[0])
+        avctx->release_buffer(avctx, &s->current_picture);
+    if(s->last_picture.data[0])
+        avctx->release_buffer(avctx, &s->last_picture);
 
     return 0;
 }

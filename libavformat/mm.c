@@ -33,6 +33,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 
 #define MM_PREAMBLE_SIZE    6
 
@@ -105,7 +106,7 @@ static int read_header(AVFormatContext *s,
     avio_skip(pb, length - 10);  /* unknown data */
 
     /* video stream */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
     st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
@@ -113,11 +114,11 @@ static int read_header(AVFormatContext *s,
     st->codec->codec_tag = 0;  /* no fourcc */
     st->codec->width = width;
     st->codec->height = height;
-    av_set_pts_info(st, 64, 1, frame_rate);
+    avpriv_set_pts_info(st, 64, 1, frame_rate);
 
     /* audio stream */
     if (length == MM_HEADER_LEN_AV) {
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
         st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
@@ -125,7 +126,7 @@ static int read_header(AVFormatContext *s,
         st->codec->codec_id = CODEC_ID_PCM_U8;
         st->codec->channels = 1;
         st->codec->sample_rate = 8000;
-        av_set_pts_info(st, 64, 1, 8000); /* 8000 hz */
+        avpriv_set_pts_info(st, 64, 1, 8000); /* 8000 hz */
     }
 
     mm->audio_pts = 0;

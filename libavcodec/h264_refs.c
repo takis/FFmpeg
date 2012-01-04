@@ -301,7 +301,7 @@ int ff_h264_decode_ref_pic_list_reordering(H264Context *h){
 
 void ff_h264_fill_mbaff_ref_list(H264Context *h){
     int list, i, j;
-    for(list=0; list<2; list++){ //FIXME try list_count
+    for(list=0; list<h->list_count; list++){
         for(i=0; i<h->ref_count[list]; i++){
             Picture *frame = &h->ref_list[list][i];
             Picture *field = &h->ref_list[list][16+2*i];
@@ -479,10 +479,9 @@ static void print_long_term(H264Context *h) {
 
 void ff_generate_sliding_window_mmcos(H264Context *h) {
     MpegEncContext * const s = &h->s;
-    av_assert0(h->long_ref_count + h->short_ref_count <= h->sps.ref_frame_count);
 
     h->mmco_index= 0;
-    if(h->short_ref_count && h->long_ref_count + h->short_ref_count == h->sps.ref_frame_count &&
+    if(h->short_ref_count && h->long_ref_count + h->short_ref_count >= h->sps.ref_frame_count &&
             !(FIELD_PICTURE && !s->first_field && s->current_picture_ptr->f.reference)) {
         h->mmco[0].opcode= MMCO_SHORT2UNUSED;
         h->mmco[0].short_pic_num= h->short_ref[ h->short_ref_count - 1 ]->frame_num;
@@ -516,9 +515,10 @@ int ff_h264_execute_ref_pic_marking(H264Context *h, MMCO *mmco, int mmco_count){
             pic = find_short(h, frame_num, &j);
             if(!pic){
                 if(mmco[i].opcode != MMCO_SHORT2LONG || !h->long_ref[mmco[i].long_arg]
-                   || h->long_ref[mmco[i].long_arg]->frame_num != frame_num)
-                av_log(h->s.avctx, AV_LOG_ERROR, "mmco: unref short failure\n");
-                err = AVERROR_INVALIDDATA;
+                   || h->long_ref[mmco[i].long_arg]->frame_num != frame_num) {
+                    av_log(h->s.avctx, AV_LOG_ERROR, "mmco: unref short failure\n");
+                    err = AVERROR_INVALIDDATA;
+                }
                 continue;
             }
         }
@@ -582,14 +582,12 @@ int ff_h264_execute_ref_pic_marking(H264Context *h, MMCO *mmco, int mmco_count){
             for(j = 0; j < 16; j++) {
                 remove_long(h, j, 0);
             }
-            s->current_picture_ptr->poc=
-            s->current_picture_ptr->field_poc[0]=
-            s->current_picture_ptr->field_poc[1]=
-            h->poc_lsb=
-            h->poc_msb=
             h->frame_num=
             s->current_picture_ptr->frame_num= 0;
+            h->mmco_reset = 1;
             s->current_picture_ptr->mmco_reset=1;
+            for (j = 0; j < MAX_DELAYED_PIC_COUNT; j++)
+                h->last_pocs[j] = INT_MIN;
             break;
         default: assert(0);
         }
@@ -654,7 +652,12 @@ int ff_h264_execute_ref_pic_marking(H264Context *h, MMCO *mmco, int mmco_count){
 
     print_short_term(h);
     print_long_term(h);
-    return err;
+
+    if(err >= 0 && h->long_ref_count==0 && h->short_ref_count<=2 && h->pps.ref_count[0]<=1 + (s->picture_structure != PICT_FRAME) && s->current_picture_ptr->f.pict_type == AV_PICTURE_TYPE_I){
+        s->current_picture_ptr->sync |= 1;
+    }
+
+    return (h->s.avctx->err_recognition & AV_EF_EXPLODE) ? err : 0;
 }
 
 int ff_h264_decode_ref_pic_marking(H264Context *h, GetBitContext *gb){

@@ -60,7 +60,7 @@ typedef struct RTPContext {
  * @return zero if no error.
  */
 
-int rtp_set_remote_url(URLContext *h, const char *uri)
+int ff_rtp_set_remote_url(URLContext *h, const char *uri)
 {
     RTPContext *s = h->priv_data;
     char hostname[256];
@@ -137,7 +137,7 @@ static void build_udp_url(char *buf, int buf_size,
 
 static int rtp_open(URLContext *h, const char *uri, int flags)
 {
-    RTPContext *s;
+    RTPContext *s = h->priv_data;
     int rtp_port, rtcp_port,
         ttl, connect,
         local_rtp_port, local_rtcp_port, max_packet_size;
@@ -145,11 +145,6 @@ static int rtp_open(URLContext *h, const char *uri, int flags)
     char buf[1024];
     char path[1024];
     const char *p;
-
-    s = av_mallocz(sizeof(RTPContext));
-    if (!s)
-        return AVERROR(ENOMEM);
-    h->priv_data = s;
 
     av_url_split(NULL, 0, NULL, 0, hostname, sizeof(hostname), &rtp_port,
                  path, sizeof(path), uri);
@@ -189,7 +184,7 @@ static int rtp_open(URLContext *h, const char *uri, int flags)
     build_udp_url(buf, sizeof(buf),
                   hostname, rtp_port, local_rtp_port, ttl, max_packet_size,
                   connect);
-    if (ffurl_open(&s->rtp_hd, buf, flags) < 0)
+    if (ffurl_open(&s->rtp_hd, buf, flags, &h->interrupt_callback, NULL) < 0)
         goto fail;
     if (local_rtp_port>=0 && local_rtcp_port<0)
         local_rtcp_port = ff_udp_get_local_port(s->rtp_hd) + 1;
@@ -197,7 +192,7 @@ static int rtp_open(URLContext *h, const char *uri, int flags)
     build_udp_url(buf, sizeof(buf),
                   hostname, rtcp_port, local_rtcp_port, ttl, max_packet_size,
                   connect);
-    if (ffurl_open(&s->rtcp_hd, buf, flags) < 0)
+    if (ffurl_open(&s->rtcp_hd, buf, flags, &h->interrupt_callback, NULL) < 0)
         goto fail;
 
     /* just to ease handle access. XXX: need to suppress direct handle
@@ -214,7 +209,6 @@ static int rtp_open(URLContext *h, const char *uri, int flags)
         ffurl_close(s->rtp_hd);
     if (s->rtcp_hd)
         ffurl_close(s->rtcp_hd);
-    av_free(s);
     return AVERROR(EIO);
 }
 
@@ -227,7 +221,7 @@ static int rtp_read(URLContext *h, uint8_t *buf, int size)
     struct pollfd p[2] = {{s->rtp_fd, POLLIN, 0}, {s->rtcp_fd, POLLIN, 0}};
 
     for(;;) {
-        if (url_interrupt_cb())
+        if (ff_check_interrupt(&h->interrupt_callback))
             return AVERROR_EXIT;
         /* build fdset to listen to RTP and RTCP packets */
         n = poll(p, 2, 100);
@@ -291,7 +285,6 @@ static int rtp_close(URLContext *h)
 
     ffurl_close(s->rtp_hd);
     ffurl_close(s->rtcp_hd);
-    av_free(s);
     return 0;
 }
 
@@ -301,7 +294,7 @@ static int rtp_close(URLContext *h)
  * @return the local port number
  */
 
-int rtp_get_local_rtp_port(URLContext *h)
+int ff_rtp_get_local_rtp_port(URLContext *h)
 {
     RTPContext *s = h->priv_data;
     return ff_udp_get_local_port(s->rtp_hd);
@@ -313,7 +306,7 @@ int rtp_get_local_rtp_port(URLContext *h)
  * @return the local port number
  */
 
-int rtp_get_local_rtcp_port(URLContext *h)
+int ff_rtp_get_local_rtcp_port(URLContext *h)
 {
     RTPContext *s = h->priv_data;
     return ff_udp_get_local_port(s->rtcp_hd);
@@ -325,7 +318,7 @@ static int rtp_get_file_handle(URLContext *h)
     return s->rtp_fd;
 }
 
-int rtp_get_rtcp_file_handle(URLContext *h) {
+int ff_rtp_get_rtcp_file_handle(URLContext *h) {
     RTPContext *s = h->priv_data;
     return s->rtcp_fd;
 }
@@ -337,4 +330,5 @@ URLProtocol ff_rtp_protocol = {
     .url_write           = rtp_write,
     .url_close           = rtp_close,
     .url_get_file_handle = rtp_get_file_handle,
+    .priv_data_size      = sizeof(RTPContext),
 };

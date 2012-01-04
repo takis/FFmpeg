@@ -547,7 +547,13 @@ static int rv10_decode_packet(AVCodecContext *avctx,
         if(MPV_frame_start(s, avctx) < 0)
             return -1;
         ff_er_frame_start(s);
+    } else {
+        if (s->current_picture_ptr->f.pict_type != s->pict_type) {
+            av_log(s->avctx, AV_LOG_ERROR, "Slice type mismatch\n");
+            return -1;
+        }
     }
+
 
     av_dlog(avctx, "qscale=%d\n", s->qscale);
 
@@ -620,7 +626,7 @@ static int rv10_decode_packet(AVCodecContext *avctx,
         if(ret == SLICE_END) break;
     }
 
-    ff_er_add_slice(s, start_mb_x, s->resync_mb_y, s->mb_x-1, s->mb_y, AC_END|DC_END|MV_END);
+    ff_er_add_slice(s, start_mb_x, s->resync_mb_y, s->mb_x-1, s->mb_y, ER_MB_END);
 
     return s->gb.size_in_bits;
 }

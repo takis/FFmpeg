@@ -53,7 +53,19 @@ void ff_put_pixels8_y2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
 void ff_put_pixels8_xy2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
 
 void ff_avg_pixels16_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_x2_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_y2_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_xy2_neon(uint8_t *, const uint8_t *, int, int);
 void ff_avg_pixels8_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_x2_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_y2_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_xy2_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_x2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_y2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels16_xy2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_x2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_y2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
+void ff_avg_pixels8_xy2_no_rnd_neon(uint8_t *, const uint8_t *, int, int);
 
 void ff_add_pixels_clamped_neon(const DCTELEM *, uint8_t *, int);
 void ff_put_pixels_clamped_neon(const DCTELEM *, uint8_t *, int);
@@ -143,6 +155,8 @@ void ff_vector_fmul_window_neon(float *dst, const float *src0,
                                 const float *src1, const float *win, int len);
 void ff_vector_fmul_scalar_neon(float *dst, const float *src, float mul,
                                 int len);
+void ff_vector_fmac_scalar_neon(float *dst, const float *src, float mul,
+                                int len);
 void ff_butterflies_float_neon(float *v1, float *v2, int len);
 float ff_scalarproduct_float_neon(const float *v1, const float *v2, int len);
 void ff_vector_fmul_reverse_neon(float *dst, const float *src0,
@@ -187,37 +201,51 @@ void ff_dsputil_init_neon(DSPContext *c, AVCodecContext *avctx)
     }
 
     if (!high_bit_depth) {
-    c->clear_block  = ff_clear_block_neon;
-    c->clear_blocks = ff_clear_blocks_neon;
+        c->clear_block  = ff_clear_block_neon;
+        c->clear_blocks = ff_clear_blocks_neon;
 
-    c->put_pixels_tab[0][0] = ff_put_pixels16_neon;
-    c->put_pixels_tab[0][1] = ff_put_pixels16_x2_neon;
-    c->put_pixels_tab[0][2] = ff_put_pixels16_y2_neon;
-    c->put_pixels_tab[0][3] = ff_put_pixels16_xy2_neon;
-    c->put_pixels_tab[1][0] = ff_put_pixels8_neon;
-    c->put_pixels_tab[1][1] = ff_put_pixels8_x2_neon;
-    c->put_pixels_tab[1][2] = ff_put_pixels8_y2_neon;
-    c->put_pixels_tab[1][3] = ff_put_pixels8_xy2_neon;
+        c->put_pixels_tab[0][0] = ff_put_pixels16_neon;
+        c->put_pixels_tab[0][1] = ff_put_pixels16_x2_neon;
+        c->put_pixels_tab[0][2] = ff_put_pixels16_y2_neon;
+        c->put_pixels_tab[0][3] = ff_put_pixels16_xy2_neon;
+        c->put_pixels_tab[1][0] = ff_put_pixels8_neon;
+        c->put_pixels_tab[1][1] = ff_put_pixels8_x2_neon;
+        c->put_pixels_tab[1][2] = ff_put_pixels8_y2_neon;
+        c->put_pixels_tab[1][3] = ff_put_pixels8_xy2_neon;
 
-    c->put_no_rnd_pixels_tab[0][0] = ff_put_pixels16_neon;
-    c->put_no_rnd_pixels_tab[0][1] = ff_put_pixels16_x2_no_rnd_neon;
-    c->put_no_rnd_pixels_tab[0][2] = ff_put_pixels16_y2_no_rnd_neon;
-    c->put_no_rnd_pixels_tab[0][3] = ff_put_pixels16_xy2_no_rnd_neon;
-    c->put_no_rnd_pixels_tab[1][0] = ff_put_pixels8_neon;
-    c->put_no_rnd_pixels_tab[1][1] = ff_put_pixels8_x2_no_rnd_neon;
-    c->put_no_rnd_pixels_tab[1][2] = ff_put_pixels8_y2_no_rnd_neon;
-    c->put_no_rnd_pixels_tab[1][3] = ff_put_pixels8_xy2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[0][0] = ff_put_pixels16_neon;
+        c->put_no_rnd_pixels_tab[0][1] = ff_put_pixels16_x2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[0][2] = ff_put_pixels16_y2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[0][3] = ff_put_pixels16_xy2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[1][0] = ff_put_pixels8_neon;
+        c->put_no_rnd_pixels_tab[1][1] = ff_put_pixels8_x2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[1][2] = ff_put_pixels8_y2_no_rnd_neon;
+        c->put_no_rnd_pixels_tab[1][3] = ff_put_pixels8_xy2_no_rnd_neon;
 
-    c->avg_pixels_tab[0][0] = ff_avg_pixels16_neon;
-    c->avg_pixels_tab[1][0] = ff_avg_pixels8_neon;
+        c->avg_pixels_tab[0][0] = ff_avg_pixels16_neon;
+        c->avg_pixels_tab[0][1] = ff_avg_pixels16_x2_neon;
+        c->avg_pixels_tab[0][2] = ff_avg_pixels16_y2_neon;
+        c->avg_pixels_tab[0][3] = ff_avg_pixels16_xy2_neon;
+        c->avg_pixels_tab[1][0] = ff_avg_pixels8_neon;
+        c->avg_pixels_tab[1][1] = ff_avg_pixels8_x2_neon;
+        c->avg_pixels_tab[1][2] = ff_avg_pixels8_y2_neon;
+        c->avg_pixels_tab[1][3] = ff_avg_pixels8_xy2_neon;
+
+        c->avg_no_rnd_pixels_tab[0][0] = ff_avg_pixels16_neon;
+        c->avg_no_rnd_pixels_tab[0][1] = ff_avg_pixels16_x2_no_rnd_neon;
+        c->avg_no_rnd_pixels_tab[0][2] = ff_avg_pixels16_y2_no_rnd_neon;
+        c->avg_no_rnd_pixels_tab[0][3] = ff_avg_pixels16_xy2_no_rnd_neon;
+        c->avg_no_rnd_pixels_tab[1][0] = ff_avg_pixels8_neon;
+        c->avg_no_rnd_pixels_tab[1][1] = ff_avg_pixels8_x2_no_rnd_neon;
+        c->avg_no_rnd_pixels_tab[1][2] = ff_avg_pixels8_y2_no_rnd_neon;
+        c->avg_no_rnd_pixels_tab[1][3] = ff_avg_pixels8_xy2_no_rnd_neon;
     }
 
     c->add_pixels_clamped = ff_add_pixels_clamped_neon;
     c->put_pixels_clamped = ff_put_pixels_clamped_neon;
     c->put_signed_pixels_clamped = ff_put_signed_pixels_clamped_neon;
 
-    if (CONFIG_H264_DECODER) {
-        if (!high_bit_depth) {
+    if (CONFIG_H264_DECODER && !high_bit_depth) {
         c->put_h264_chroma_pixels_tab[0] = ff_put_h264_chroma_mc8_neon;
         c->put_h264_chroma_pixels_tab[1] = ff_put_h264_chroma_mc4_neon;
         c->put_h264_chroma_pixels_tab[2] = ff_put_h264_chroma_mc2_neon;
@@ -293,7 +321,6 @@ void ff_dsputil_init_neon(DSPContext *c, AVCodecContext *avctx)
         c->avg_h264_qpel_pixels_tab[1][13] = ff_avg_h264_qpel8_mc13_neon;
         c->avg_h264_qpel_pixels_tab[1][14] = ff_avg_h264_qpel8_mc23_neon;
         c->avg_h264_qpel_pixels_tab[1][15] = ff_avg_h264_qpel8_mc33_neon;
-        }
     }
 
     if (CONFIG_VP3_DECODER) {
@@ -305,6 +332,7 @@ void ff_dsputil_init_neon(DSPContext *c, AVCodecContext *avctx)
     c->vector_fmul                = ff_vector_fmul_neon;
     c->vector_fmul_window         = ff_vector_fmul_window_neon;
     c->vector_fmul_scalar         = ff_vector_fmul_scalar_neon;
+    c->vector_fmac_scalar         = ff_vector_fmac_scalar_neon;
     c->butterflies_float          = ff_butterflies_float_neon;
     c->scalarproduct_float        = ff_scalarproduct_float_neon;
     c->vector_fmul_reverse        = ff_vector_fmul_reverse_neon;

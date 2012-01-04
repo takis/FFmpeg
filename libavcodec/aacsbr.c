@@ -33,6 +33,7 @@
 #include "fft.h"
 #include "aacps.h"
 #include "libavutil/libm.h"
+#include "libavutil/avassert.h"
 
 #include <stdint.h>
 #include <float.h>
@@ -130,6 +131,8 @@ av_cold void ff_aac_sbr_init(void)
 av_cold void ff_aac_sbr_ctx_init(AACContext *ac, SpectralBandReplication *sbr)
 {
     float mdct_scale;
+    if(sbr->mdct.mdct_bits)
+        return;
     sbr->kx[0] = sbr->kx[1] = 32; //Typo in spec, kx' inits to 32
     sbr->data[0].e_a[1] = sbr->data[1].e_a[1] = -1;
     sbr->data[0].synthesis_filterbank_samples_offset = SBR_SYNTHESIS_BUF_SIZE - (1280 - 128);
@@ -1184,7 +1187,7 @@ static void sbr_qmf_synthesis(DSPContext *dsp, FFTContext *mdct,
     const float *sbr_qmf_window = div ? sbr_qmf_window_ds : sbr_qmf_window_us;
     float *v;
     for (i = 0; i < 32; i++) {
-        if (*v_off == 0) {
+        if (*v_off < 128 >> div) {
             int saved_samples = (1280 - 128) >> div;
             memcpy(&v0[SBR_SYNTHESIS_BUF_SIZE - saved_samples], v0, saved_samples * sizeof(float));
             *v_off = SBR_SYNTHESIS_BUF_SIZE - saved_samples - (128 >> div);
@@ -1457,6 +1460,7 @@ static void sbr_mapping(AACContext *ac, SpectralBandReplication *sbr,
         uint16_t *table = ch_data->bs_freq_res[e + 1] ? sbr->f_tablehigh : sbr->f_tablelow;
         int k;
 
+        av_assert0(sbr->kx[1] <= table[0]);
         for (i = 0; i < ilim; i++)
             for (m = table[i]; m < table[i + 1]; m++)
                 sbr->e_origmapped[e][m - sbr->kx[1]] = ch_data->env_facs[e+1][i];

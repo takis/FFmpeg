@@ -126,7 +126,6 @@ extern const vf_info_t vf_info_ass;
 extern const vf_info_t vf_info_bmovl;
 extern const vf_info_t vf_info_crop;
 extern const vf_info_t vf_info_decimate;
-extern const vf_info_t vf_info_delogo;
 extern const vf_info_t vf_info_denoise3d;
 extern const vf_info_t vf_info_detc;
 extern const vf_info_t vf_info_dint;
@@ -197,7 +196,6 @@ extern const vf_info_t vf_info_zrmjpeg;
 static const vf_info_t* const filters[]={
     &vf_info_2xsai,
     &vf_info_decimate,
-    &vf_info_delogo,
     &vf_info_denoise3d,
     &vf_info_detc,
     &vf_info_dint,
@@ -239,6 +237,7 @@ static const vf_info_t* const filters[]={
     &vf_info_softpulldown,
     &vf_info_softskip,
     &vf_info_spp,
+    &vf_info_stereo3d,
     &vf_info_swapuv,
     &vf_info_telecine,
     &vf_info_tile,
@@ -267,7 +266,6 @@ lavcdeint
 noformat
 pp
 scale
-stereo3d
 tfields
 vo
 yadif
@@ -445,7 +443,7 @@ unsigned int vf_match_csp(vf_instance_t** vfp,const unsigned int* list,unsigned 
 }
 
 mp_image_t* vf_get_image(vf_instance_t* vf, unsigned int outfmt, int mp_imgtype, int mp_imgflag, int w, int h){
-    MPContext *m= ((uint8_t*)vf) - offsetof(MPContext, next_vf);
+    MPContext *m= (MPContext*)(((uint8_t*)vf) - offsetof(MPContext, next_vf));
   mp_image_t* mpi=NULL;
   int w2;
   int number = mp_imgtype >> 16;
@@ -617,7 +615,7 @@ int vf_next_put_image(struct vf_instance *vf,mp_image_t *mpi, double pts){
         goto fail;
 
     picref->buf = pic;
-    picref->buf->please_use_av_free= av_free;
+    picref->buf->please_use_av_free= (void*)av_free;
     if (!(picref->video = av_mallocz(sizeof(AVFilterBufferRefVideoProps))))
         goto fail;
 
@@ -713,11 +711,6 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     char name[256];
     int i;
 
-    av_log(ctx, AV_LOG_WARNING,
-"This is a unholy filter, it will be purified by the ffmpeg exorcist team\n"
-"which will change its syntax from dark -vf mp to light -vf.\n"
-"Thou shalst not make spells or scripts that depend on it\n");
-
     m->avfctx= ctx;
 
     if(!args || 1!=sscanf(args, "%255[^:=]", name)){
@@ -735,6 +728,10 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
         av_log(ctx, AV_LOG_ERROR, "Unknown filter %s\n", name);
         return AVERROR(EINVAL);
     }
+
+    av_log(ctx, AV_LOG_WARNING,
+           "'%s' is a wrapped MPlayer filter (libmpcodecs). This filter may be removed\n"
+           "once it has been ported to a native libavfilter.\n", name);
 
     memset(&m->vf,0,sizeof(m->vf));
     m->vf.info= filters[i];
@@ -886,7 +883,7 @@ AVFilter avfilter_vf_mp = {
     .priv_size = sizeof(MPContext),
     .query_formats = query_formats,
 
-    .inputs    = (AVFilterPad[]) {{ .name            = "default",
+    .inputs    = (const AVFilterPad[]) {{ .name      = "default",
                                     .type            = AVMEDIA_TYPE_VIDEO,
                                     .start_frame     = start_frame,
                                     .draw_slice      = null_draw_slice,
@@ -894,7 +891,7 @@ AVFilter avfilter_vf_mp = {
                                     .config_props    = config_inprops,
                                     .min_perms       = AV_PERM_READ, },
                                   { .name = NULL}},
-    .outputs   = (AVFilterPad[]) {{ .name            = "default",
+    .outputs   = (const AVFilterPad[]) {{ .name      = "default",
                                     .type            = AVMEDIA_TYPE_VIDEO,
                                     .request_frame   = request_frame,
                                     .config_props    = config_outprops, },

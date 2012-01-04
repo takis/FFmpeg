@@ -52,6 +52,7 @@
 #define MAC_COEF(d,a,b) ((d)+=(a)*(b))
 #define COEF_MIN (-16777215.0/16777216.0)
 #define COEF_MAX ( 16777215.0/16777216.0)
+#define NEW_CPL_COORD_THRESHOLD 0.03
 typedef float SampleType;
 typedef float CoefType;
 typedef float CoefSumType;
@@ -60,6 +61,7 @@ typedef float CoefSumType;
 #define MAC_COEF(d,a,b) MAC64(d,a,b)
 #define COEF_MIN -16777215
 #define COEF_MAX  16777215
+#define NEW_CPL_COORD_THRESHOLD 503317
 typedef int16_t SampleType;
 typedef int32_t CoefType;
 typedef int64_t CoefSumType;
@@ -71,8 +73,8 @@ typedef int64_t CoefSumType;
 #define AC3ENC_OPT_OFF              0
 #define AC3ENC_OPT_ON               1
 #define AC3ENC_OPT_NOT_INDICATED    0
-#define AC3ENC_OPT_MODE_ON          1
-#define AC3ENC_OPT_MODE_OFF         2
+#define AC3ENC_OPT_MODE_ON          2
+#define AC3ENC_OPT_MODE_OFF         1
 
 /* specific option values */
 #define AC3ENC_OPT_LARGE_ROOM       1
@@ -83,7 +85,6 @@ typedef int64_t CoefSumType;
 #define AC3ENC_OPT_ADCONV_HDCD      1
 
 
-#if 0
 /**
  * Encoding Options used by AVOption.
  */
@@ -118,7 +119,7 @@ typedef struct AC3EncOptions {
     int channel_coupling;
     int cpl_start;
 } AC3EncOptions;
-#endif
+
 /**
  * Data for a single audio block.
  */
@@ -256,6 +257,8 @@ typedef struct AC3EncodeContext {
     void (*output_frame_header)(struct AC3EncodeContext *s);
 } AC3EncodeContext;
 
+
+extern const uint64_t ff_ac3_channel_layouts[19];
 
 int ff_ac3_encode_init(AVCodecContext *avctx);
 

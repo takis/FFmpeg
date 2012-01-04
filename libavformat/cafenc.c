@@ -107,10 +107,6 @@ static int caf_write_header(AVFormatContext *s)
     switch (enc->codec_id) {
     case CODEC_ID_AAC:
     case CODEC_ID_AC3:
-    case CODEC_ID_ALAC:
-    case CODEC_ID_AMR_NB:
-    case CODEC_ID_QCELP:
-    case CODEC_ID_QDM2:
         av_log(s, AV_LOG_ERROR, "muxing codec currently unsupported\n");
         return AVERROR_PATCHWELCOME;
     }
@@ -160,6 +156,28 @@ static int caf_write_header(AVFormatContext *s)
         ffio_wfourcc(pb, "chan");
         avio_wb64(pb, 12);
         ff_mov_write_chan(pb, enc->channel_layout);
+    }
+
+    if (enc->codec_id == CODEC_ID_ALAC) {
+        ffio_wfourcc(pb, "kuki");
+        avio_wb64(pb, 12 + enc->extradata_size);
+        avio_write(pb, "\0\0\0\14frmaalac", 12);
+        avio_write(pb, enc->extradata, enc->extradata_size);
+    } else if (enc->codec_id == CODEC_ID_AMR_NB) {
+        ffio_wfourcc(pb, "kuki");
+        avio_wb64(pb, 29);
+        avio_write(pb, "\0\0\0\14frmasamr", 12);
+        avio_wb32(pb, 0x11); /* size */
+        avio_write(pb, "samrFFMP", 8);
+        avio_w8(pb, 0); /* decoder version */
+
+        avio_wb16(pb, 0x81FF); /* Mode set (all modes for AMR_NB) */
+        avio_w8(pb, 0x00); /* Mode change period (no restriction) */
+        avio_w8(pb, 0x01); /* Frames per sample */
+    } else if (enc->codec_id == CODEC_ID_QDM2) {
+        ffio_wfourcc(pb, "kuki");
+        avio_wb64(pb, enc->extradata_size);
+        avio_write(pb, enc->extradata, enc->extradata_size);
     }
 
     ffio_wfourcc(pb, "data"); //< Audio Data chunk
@@ -230,15 +248,15 @@ static int caf_write_trailer(AVFormatContext *s)
 }
 
 AVOutputFormat ff_caf_muxer = {
-    "caf",
-    NULL_IF_CONFIG_SMALL("Apple Core Audio Format"),
-    "audio/x-caf",
-    "caf",
-    sizeof(CAFContext),
-    CODEC_ID_PCM_S16BE,
-    CODEC_ID_NONE,
-    caf_write_header,
-    caf_write_packet,
-    caf_write_trailer,
+    .name           = "caf",
+    .long_name      = NULL_IF_CONFIG_SMALL("Apple Core Audio Format"),
+    .mime_type      = "audio/x-caf",
+    .extensions     = "caf",
+    .priv_data_size = sizeof(CAFContext),
+    .audio_codec    = CODEC_ID_PCM_S16BE,
+    .video_codec    = CODEC_ID_NONE,
+    .write_header   = caf_write_header,
+    .write_packet   = caf_write_packet,
+    .write_trailer  = caf_write_trailer,
     .codec_tag= (const AVCodecTag* const []){ff_codec_caf_tags, 0},
 };

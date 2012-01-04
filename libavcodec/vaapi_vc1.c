@@ -42,10 +42,10 @@ static inline int vc1_has_MVTYPEMB_bitplane(VC1Context *v)
 {
     if (v->mv_type_is_raw)
         return 0;
-    return (v->s.pict_type == AV_PICTURE_TYPE_P &&
-            (v->mv_mode == MV_PMODE_MIXED_MV ||
-             (v->mv_mode == MV_PMODE_INTENSITY_COMP &&
-              v->mv_mode2 == MV_PMODE_MIXED_MV)));
+    return v->s.pict_type == AV_PICTURE_TYPE_P &&
+           (v->mv_mode == MV_PMODE_MIXED_MV ||
+            (v->mv_mode == MV_PMODE_INTENSITY_COMP &&
+             v->mv_mode2 == MV_PMODE_MIXED_MV));
 }
 
 /** Check whether the SKIPMB bitplane is present */
@@ -53,8 +53,8 @@ static inline int vc1_has_SKIPMB_bitplane(VC1Context *v)
 {
     if (v->skip_is_raw)
         return 0;
-    return (v->s.pict_type == AV_PICTURE_TYPE_P ||
-            (v->s.pict_type == AV_PICTURE_TYPE_B && !v->bi_type));
+    return v->s.pict_type == AV_PICTURE_TYPE_P ||
+           (v->s.pict_type == AV_PICTURE_TYPE_B && !v->bi_type);
 }
 
 /** Check whether the DIRECTMB bitplane is present */
@@ -70,9 +70,9 @@ static inline int vc1_has_ACPRED_bitplane(VC1Context *v)
 {
     if (v->acpred_is_raw)
         return 0;
-    return (v->profile == PROFILE_ADVANCED &&
-            (v->s.pict_type == AV_PICTURE_TYPE_I ||
-             (v->s.pict_type == AV_PICTURE_TYPE_B && v->bi_type)));
+    return v->profile == PROFILE_ADVANCED &&
+           (v->s.pict_type == AV_PICTURE_TYPE_I ||
+            (v->s.pict_type == AV_PICTURE_TYPE_B && v->bi_type));
 }
 
 /** Check whether the OVERFLAGS bitplane is present */
@@ -80,11 +80,11 @@ static inline int vc1_has_OVERFLAGS_bitplane(VC1Context *v)
 {
     if (v->overflg_is_raw)
         return 0;
-    return (v->profile == PROFILE_ADVANCED &&
-            (v->s.pict_type == AV_PICTURE_TYPE_I ||
-             (v->s.pict_type == AV_PICTURE_TYPE_B && v->bi_type)) &&
-            (v->overlap && v->pq <= 8) &&
-            v->condover == CONDOVER_SELECT);
+    return v->profile == PROFILE_ADVANCED &&
+           (v->s.pict_type == AV_PICTURE_TYPE_I ||
+            (v->s.pict_type == AV_PICTURE_TYPE_B && v->bi_type)) &&
+           (v->overlap && v->pq <= 8) &&
+           v->condover == CONDOVER_SELECT;
 }
 
 /** Reconstruct bitstream PTYPE (7.1.1.4, index into Table-35) */
@@ -113,6 +113,18 @@ static inline VAMvModeVC1 vc1_get_MVMODE2(VC1Context *v)
 {
     if (v->s.pict_type == AV_PICTURE_TYPE_P && v->mv_mode == MV_PMODE_INTENSITY_COMP)
         return get_VAMvModeVC1(v->mv_mode2);
+    return 0;
+}
+
+/** Reconstruct bitstream TTFRM (7.1.1.41, Table-53) */
+static inline int vc1_get_TTFRM(VC1Context *v)
+{
+    switch (v->ttfrm) {
+    case TT_8X8: return 0;
+    case TT_8X4: return 1;
+    case TT_4X8: return 2;
+    case TT_4X4: return 3;
+    }
     return 0;
 }
 
@@ -239,7 +251,7 @@ static int vaapi_vc1_start_frame(AVCodecContext *avctx, av_unused const uint8_t 
     pic_param->transform_fields.value                               = 0; /* reset all bits */
     pic_param->transform_fields.bits.variable_sized_transform_flag  = v->vstransform;
     pic_param->transform_fields.bits.mb_level_transform_type_flag   = v->ttmbf;
-    pic_param->transform_fields.bits.frame_level_transform_type     = v->ttfrm;
+    pic_param->transform_fields.bits.frame_level_transform_type     = vc1_get_TTFRM(v);
     pic_param->transform_fields.bits.transform_ac_codingset_idx1    = v->c_ac_table_index;
     pic_param->transform_fields.bits.transform_ac_codingset_idx2    = v->y_ac_table_index;
     pic_param->transform_fields.bits.intra_transform_dc_table       = v->s.dc_table_index;
@@ -334,11 +346,9 @@ AVHWAccel ff_wmv3_vaapi_hwaccel = {
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = CODEC_ID_WMV3,
     .pix_fmt        = PIX_FMT_VAAPI_VLD,
-    .capabilities   = 0,
     .start_frame    = vaapi_vc1_start_frame,
     .end_frame      = vaapi_vc1_end_frame,
     .decode_slice   = vaapi_vc1_decode_slice,
-    .priv_data_size = 0,
 };
 #endif
 
@@ -347,9 +357,7 @@ AVHWAccel ff_vc1_vaapi_hwaccel = {
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = CODEC_ID_VC1,
     .pix_fmt        = PIX_FMT_VAAPI_VLD,
-    .capabilities   = 0,
     .start_frame    = vaapi_vc1_start_frame,
     .end_frame      = vaapi_vc1_end_frame,
     .decode_slice   = vaapi_vc1_decode_slice,
-    .priv_data_size = 0,
 };

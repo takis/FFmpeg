@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/eval.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/audioconvert.h"
 #include "avfilter.h"
@@ -55,8 +56,15 @@ AVFilterFormats *avfilter_merge_formats(AVFilterFormats *a, AVFilterFormats *b)
                                                            b->format_count));
     for (i = 0; i < a->format_count; i++)
         for (j = 0; j < b->format_count; j++)
-            if (a->formats[i] == b->formats[j])
+            if (a->formats[i] == b->formats[j]){
+                if(k >= FFMIN(a->format_count, b->format_count)){
+                    av_log(0, AV_LOG_ERROR, "Duplicate formats in avfilter_merge_formats() detected\n");
+                    av_free(ret->formats);
+                    av_free(ret);
+                    return NULL;
+                }
                 ret->formats[k++] = a->formats[i];
+            }
 
     ret->format_count = k;
     /* check that there was at least one common format */
@@ -83,6 +91,32 @@ int ff_fmt_is_in(int fmt, const int *fmts)
             return 1;
     }
     return 0;
+}
+
+#define COPY_INT_LIST(list_copy, list, type) {                          \
+    int count = 0;                                                      \
+    if (list)                                                           \
+        for (count = 0; list[count] != -1; count++)                     \
+            ;                                                           \
+    list_copy = av_calloc(count+1, sizeof(type));                       \
+    if (list_copy) {                                                    \
+        memcpy(list_copy, list, sizeof(type) * count);                  \
+        list_copy[count] = -1;                                          \
+    }                                                                   \
+}
+
+int *ff_copy_int_list(const int * const list)
+{
+    int *ret = NULL;
+    COPY_INT_LIST(ret, list, int);
+    return ret;
+}
+
+int64_t *ff_copy_int64_list(const int64_t * const list)
+{
+    int64_t *ret = NULL;
+    COPY_INT_LIST(ret, list, int64_t);
+    return ret;
 }
 
 #define MAKE_FORMAT_LIST()                                              \
@@ -137,7 +171,14 @@ int avfilter_add_format(AVFilterFormats **avff, int64_t fmt)
     return 0;
 }
 
+#if FF_API_OLD_ALL_FORMATS_API
 AVFilterFormats *avfilter_all_formats(enum AVMediaType type)
+{
+    return avfilter_make_all_formats(type);
+}
+#endif
+
+AVFilterFormats *avfilter_make_all_formats(enum AVMediaType type)
 {
     AVFilterFormats *ret = NULL;
     int fmt;
@@ -152,30 +193,19 @@ AVFilterFormats *avfilter_all_formats(enum AVMediaType type)
     return ret;
 }
 
-AVFilterFormats *avfilter_all_channel_layouts(void)
-{
-    static int64_t chlayouts[] = {
-        AV_CH_LAYOUT_MONO,
-        AV_CH_LAYOUT_STEREO,
-        AV_CH_LAYOUT_4POINT0,
-        AV_CH_LAYOUT_QUAD,
-        AV_CH_LAYOUT_5POINT0,
-        AV_CH_LAYOUT_5POINT0_BACK,
-        AV_CH_LAYOUT_5POINT1,
-        AV_CH_LAYOUT_5POINT1_BACK,
-        AV_CH_LAYOUT_5POINT1|AV_CH_LAYOUT_STEREO_DOWNMIX,
-        AV_CH_LAYOUT_7POINT1,
-        AV_CH_LAYOUT_7POINT1_WIDE,
-        AV_CH_LAYOUT_7POINT1|AV_CH_LAYOUT_STEREO_DOWNMIX,
-        -1,
-    };
+const int64_t avfilter_all_channel_layouts[] = {
+#include "all_channel_layouts.h"
+    -1
+};
 
-    return avfilter_make_format64_list(chlayouts);
+AVFilterFormats *avfilter_make_all_channel_layouts(void)
+{
+    return avfilter_make_format64_list(avfilter_all_channel_layouts);
 }
 
-AVFilterFormats *avfilter_all_packing_formats(void)
+AVFilterFormats *avfilter_make_all_packing_formats(void)
 {
-    static int packing[] = {
+    static const int packing[] = {
         AVFILTER_PACKED,
         AVFILTER_PLANAR,
         -1,
@@ -233,3 +263,97 @@ void avfilter_formats_changeref(AVFilterFormats **oldref,
     }
 }
 
+/* internal functions for parsing audio format arguments */
+
+int ff_parse_pixel_format(enum PixelFormat *ret, const char *arg, void *log_ctx)
+{
+    char *tail;
+    int pix_fmt = av_get_pix_fmt(arg);
+    if (pix_fmt == PIX_FMT_NONE) {
+        pix_fmt = strtol(arg, &tail, 0);
+        if (*tail || (unsigned)pix_fmt >= PIX_FMT_NB) {
+            av_log(log_ctx, AV_LOG_ERROR, "Invalid pixel format '%s'\n", arg);
+            return AVERROR(EINVAL);
+        }
+    }
+    *ret = pix_fmt;
+    return 0;
+}
+
+int ff_parse_sample_format(int *ret, const char *arg, void *log_ctx)
+{
+    char *tail;
+    int sfmt = av_get_sample_fmt(arg);
+    if (sfmt == AV_SAMPLE_FMT_NONE) {
+        sfmt = strtol(arg, &tail, 0);
+        if (*tail || (unsigned)sfmt >= AV_SAMPLE_FMT_NB) {
+            av_log(log_ctx, AV_LOG_ERROR, "Invalid sample format '%s'\n", arg);
+            return AVERROR(EINVAL);
+        }
+    }
+    *ret = sfmt;
+    return 0;
+}
+
+int ff_parse_sample_rate(int *ret, const char *arg, void *log_ctx)
+{
+    char *tail;
+    double srate = av_strtod(arg, &tail);
+    if (*tail || srate < 1 || (int)srate != srate || srate > INT_MAX) {
+        av_log(log_ctx, AV_LOG_ERROR, "Invalid sample rate '%s'\n", arg);
+        return AVERROR(EINVAL);
+    }
+    *ret = srate;
+    return 0;
+}
+
+int ff_parse_channel_layout(int64_t *ret, const char *arg, void *log_ctx)
+{
+    char *tail;
+    int64_t chlayout = av_get_channel_layout(arg);
+    if (chlayout == 0) {
+        chlayout = strtol(arg, &tail, 10);
+        if (*tail || chlayout == 0) {
+            av_log(log_ctx, AV_LOG_ERROR, "Invalid channel layout '%s'\n", arg);
+            return AVERROR(EINVAL);
+        }
+    }
+    *ret = chlayout;
+    return 0;
+}
+
+int ff_parse_packing_format(int *ret, const char *arg, void *log_ctx)
+{
+    char *tail;
+    int planar = strtol(arg, &tail, 10);
+    if (*tail) {
+        planar = !strcmp(arg, "packed") ? 0:
+                 !strcmp(arg, "planar") ? 1: -1;
+    }
+
+    if (planar != 0 && planar != 1) {
+        av_log(log_ctx, AV_LOG_ERROR, "Invalid packing format '%s'\n", arg);
+        return AVERROR(EINVAL);
+    }
+    *ret = planar;
+    return 0;
+}
+
+#ifdef TEST
+
+#undef printf
+
+int main(void)
+{
+    const int64_t *cl;
+    char buf[512];
+
+    for (cl = avfilter_all_channel_layouts; *cl != -1; cl++) {
+        av_get_channel_layout_string(buf, sizeof(buf), -1, *cl);
+        printf("%s\n", buf);
+    }
+
+    return 0;
+}
+
+#endif

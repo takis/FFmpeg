@@ -2,10 +2,9 @@
  * Ogg bitstream support
  * Luca Barbato <lu_zero@gentoo.org>
  * Based on tcvp implementation
- *
  */
 
-/**
+/*
     Copyright (C) 2005  Michael Ahlberg, Måns Rullgård
 
     Permission is hereby granted, free of charge, to any person
@@ -27,12 +26,12 @@
     WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
     DEALINGS IN THE SOFTWARE.
-**/
-
+ */
 
 #include <stdio.h>
 #include "oggdec.h"
 #include "avformat.h"
+#include "internal.h"
 #include "vorbiscomment.h"
 
 #define MAX_PAGE_SIZE 65307
@@ -93,14 +92,24 @@ static int ogg_restore(AVFormatContext *s, int discard)
     ogg->state = ost->next;
 
     if (!discard){
+        struct ogg_stream *old_streams = ogg->streams;
+
         for (i = 0; i < ogg->nstreams; i++)
             av_free (ogg->streams[i].buf);
 
         avio_seek (bc, ost->pos, SEEK_SET);
         ogg->curidx = ost->curidx;
         ogg->nstreams = ost->nstreams;
-        memcpy(ogg->streams, ost->streams,
-               ost->nstreams * sizeof(*ogg->streams));
+        ogg->streams = av_realloc (ogg->streams,
+                                   ogg->nstreams * sizeof (*ogg->streams));
+
+        if (ogg->streams) {
+            memcpy(ogg->streams, ost->streams,
+                   ost->nstreams * sizeof(*ogg->streams));
+        } else {
+            av_free(old_streams);
+            ogg->nstreams = 0;
+        }
     }
 
     av_free (ost);
@@ -162,11 +171,12 @@ static int ogg_new_stream(AVFormatContext *s, uint32_t serial, int new_avstream)
     os->header = -1;
 
     if (new_avstream) {
-        st = av_new_stream(s, idx);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
 
-        av_set_pts_info(st, 64, 1, 1000000);
+        st->id = idx;
+        avpriv_set_pts_info(st, 64, 1, 1000000);
     }
 
     return idx;
@@ -452,6 +462,7 @@ static int ogg_get_length(AVFormatContext *s)
     struct ogg *ogg = s->priv_data;
     int i;
     int64_t size, end;
+    int streams_left=0;
 
     if(!s->pb->seekable)
         return 0;
@@ -473,8 +484,14 @@ static int ogg_get_length(AVFormatContext *s)
             ogg->streams[i].codec) {
             s->streams[i]->duration =
                 ogg_gptopts (s, i, ogg->streams[i].granule, NULL);
-            if (s->streams[i]->start_time != AV_NOPTS_VALUE)
+            if (s->streams[i]->start_time != AV_NOPTS_VALUE){
                 s->streams[i]->duration -= s->streams[i]->start_time;
+                streams_left-= (ogg->streams[i].got_start==-1);
+                ogg->streams[i].got_start= 1;
+            }else if(!ogg->streams[i].got_start){
+                ogg->streams[i].got_start= -1;
+                streams_left++;
+            }
         }
     }
 
@@ -485,9 +502,15 @@ static int ogg_get_length(AVFormatContext *s)
     while (!ogg_read_page (s, &i)){
         if (ogg->streams[i].granule != -1 && ogg->streams[i].granule != 0 &&
             ogg->streams[i].codec) {
-            s->streams[i]->duration -=
-                ogg_gptopts (s, i, ogg->streams[i].granule, NULL);
-            break;
+            if(s->streams[i]->duration && s->streams[i]->start_time == AV_NOPTS_VALUE && !ogg->streams[i].got_start){
+                int64_t start= ogg_gptopts (s, i, ogg->streams[i].granule, NULL);
+                if(av_rescale_q(start, s->streams[i]->time_base, AV_TIME_BASE_Q) > AV_TIME_BASE)
+                    s->streams[i]->duration -= start;
+                ogg->streams[i].got_start= 1;
+                streams_left--;
+            }
+            if(streams_left<=0)
+                break;
         }
     }
     ogg_restore (s, 0);
@@ -638,7 +661,7 @@ static int ogg_read_seek(AVFormatContext *s, int stream_index,
         && !(flags & AVSEEK_FLAG_ANY))
         os->keyframe_seek = 1;
 
-    ret = av_seek_frame_binary(s, stream_index, timestamp, flags);
+    ret = ff_seek_frame_binary(s, stream_index, timestamp, flags);
     os = ogg->streams + stream_index;
     if (ret < 0)
         os->keyframe_seek = 0;

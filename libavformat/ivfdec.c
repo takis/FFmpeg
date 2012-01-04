@@ -19,6 +19,7 @@
  */
 
 #include "avformat.h"
+#include "internal.h"
 #include "riff.h"
 #include "libavutil/intreadwrite.h"
 
@@ -40,7 +41,7 @@ static int read_header(AVFormatContext *s, AVFormatParameters *ap)
     avio_rl16(s->pb); // version
     avio_rl16(s->pb); // header size
 
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
 
@@ -61,7 +62,7 @@ static int read_header(AVFormatContext *s, AVFormatParameters *ap)
         return AVERROR_INVALIDDATA;
     }
 
-    av_set_pts_info(st, 64, time_base.num, time_base.den);
+    avpriv_set_pts_info(st, 64, time_base.num, time_base.den);
 
     return 0;
 }

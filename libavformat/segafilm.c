@@ -29,11 +29,14 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
+#include "avio_internal.h"
 
 #define FILM_TAG MKBETAG('F', 'I', 'L', 'M')
 #define FDSC_TAG MKBETAG('F', 'D', 'S', 'C')
 #define STAB_TAG MKBETAG('S', 'T', 'A', 'B')
 #define CVID_TAG MKBETAG('c', 'v', 'i', 'd')
+#define RAW_TAG  MKBETAG('r', 'a', 'w', ' ')
 
 typedef struct {
   int stream;
@@ -113,11 +116,14 @@ static int film_read_header(AVFormatContext *s,
         film->audio_bits = scratch[22];
         if (scratch[23] == 2)
             film->audio_type = CODEC_ID_ADPCM_ADX;
-        else if (film->audio_bits == 8)
-            film->audio_type = CODEC_ID_PCM_S8;
-        else if (film->audio_bits == 16)
-            film->audio_type = CODEC_ID_PCM_S16BE;
-        else
+        else if (film->audio_channels > 0) {
+            if (film->audio_bits == 8)
+                film->audio_type = CODEC_ID_PCM_S8;
+            else if (film->audio_bits == 16)
+                film->audio_type = CODEC_ID_PCM_S16BE;
+            else
+                film->audio_type = CODEC_ID_NONE;
+        } else
             film->audio_type = CODEC_ID_NONE;
     }
 
@@ -126,12 +132,15 @@ static int film_read_header(AVFormatContext *s,
 
     if (AV_RB32(&scratch[8]) == CVID_TAG) {
         film->video_type = CODEC_ID_CINEPAK;
-    } else
+    } else if (AV_RB32(&scratch[8]) == RAW_TAG) {
+        film->video_type = CODEC_ID_RAWVIDEO;
+    } else {
         film->video_type = CODEC_ID_NONE;
+    }
 
     /* initialize the decoder streams */
     if (film->video_type) {
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
         film->video_stream_index = st->index;
@@ -140,10 +149,19 @@ static int film_read_header(AVFormatContext *s,
         st->codec->codec_tag = 0;  /* no fourcc */
         st->codec->width = AV_RB32(&scratch[16]);
         st->codec->height = AV_RB32(&scratch[12]);
+
+        if (film->video_type == CODEC_ID_RAWVIDEO) {
+            if (scratch[20] == 24) {
+                st->codec->pix_fmt = PIX_FMT_RGB24;
+            } else {
+                av_log(s, AV_LOG_ERROR, "raw video is using unhandled %dbpp\n", scratch[20]);
+                return -1;
+            }
+        }
     }
 
     if (film->audio_type) {
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
         film->audio_stream_index = st->index;
@@ -156,6 +174,7 @@ static int film_read_header(AVFormatContext *s,
         if (film->audio_type == CODEC_ID_ADPCM_ADX) {
             st->codec->bits_per_coded_sample = 18 * 8 / 32;
             st->codec->block_align = st->codec->channels * 18;
+            st->need_parsing = AVSTREAM_PARSE_FULL;
         } else {
             st->codec->bits_per_coded_sample = film->audio_bits;
             st->codec->block_align = st->codec->channels *
@@ -176,9 +195,11 @@ static int film_read_header(AVFormatContext *s,
     if(film->sample_count >= UINT_MAX / sizeof(film_sample))
         return -1;
     film->sample_table = av_malloc(film->sample_count * sizeof(film_sample));
+    if (!film->sample_table)
+        return AVERROR(ENOMEM);
 
     for(i=0; i<s->nb_streams; i++)
-        av_set_pts_info(s->streams[i], 33, 1, film->base_clock);
+        avpriv_set_pts_info(s->streams[i], 33, 1, film->base_clock);
 
     audio_frame_counter = 0;
     for (i = 0; i < film->sample_count; i++) {
@@ -199,7 +220,7 @@ static int film_read_header(AVFormatContext *s,
             if (film->audio_type == CODEC_ID_ADPCM_ADX)
                 audio_frame_counter += (film->sample_table[i].sample_size * 32 /
                     (18 * film->audio_channels));
-            else
+            else if (film->audio_type != CODEC_ID_NONE)
                 audio_frame_counter += (film->sample_table[i].sample_size /
                     (film->audio_channels * film->audio_bits / 8));
         } else {
@@ -244,6 +265,8 @@ static int film_read_packet(AVFormatContext *s,
         (film->audio_type != CODEC_ID_ADPCM_ADX)) {
         /* stereo PCM needs to be interleaved */
 
+        if (ffio_limit(pb, sample->sample_size) != sample->sample_size)
+            return AVERROR(EIO);
         if (av_new_packet(pkt, sample->sample_size))
             return AVERROR(ENOMEM);
 
@@ -252,6 +275,10 @@ static int film_read_packet(AVFormatContext *s,
             av_free(film->stereo_buffer);
             film->stereo_buffer_size = sample->sample_size;
             film->stereo_buffer = av_malloc(film->stereo_buffer_size);
+            if (!film->stereo_buffer) {
+                film->stereo_buffer_size = 0;
+                return AVERROR(ENOMEM);
+            }
         }
 
         pkt->pos= avio_tell(pb);

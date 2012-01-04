@@ -75,7 +75,7 @@ void ff_acelp_lsf2lspd(double *lsp, const float *lsf, int lp_order)
 
 /**
  * @brief decodes polynomial coefficients from LSP
- * @param f [out] decoded polynomial coefficients (-0x20000000 <= (3.22) <= 0x1fffffff)
+ * @param[out] f decoded polynomial coefficients (-0x20000000 <= (3.22) <= 0x1fffffff)
  * @param lsp LSP coefficients (-0x8000 <= (0.15) <= 0x7fff)
  */
 static void lsp2poly(int* f, const int16_t* lsp, int lp_half_order)
@@ -150,7 +150,11 @@ void ff_acelp_lp_decode(int16_t* lp_1st, int16_t* lp_2nd, const int16_t* lsp_2nd
 
     /* LSP values for first subframe (3.2.5 of G.729, Equation 24)*/
     for(i=0; i<lp_order; i++)
+#ifdef G729_BITEXACT
+        lsp_1st[i] = (lsp_2nd[i] >> 1) + (lsp_prev[i] >> 1);
+#else
         lsp_1st[i] = (lsp_2nd[i] + lsp_prev[i]) >> 1;
+#endif
 
     ff_acelp_lsp2lpc(lp_1st, lsp_1st, lp_order >> 1);
 

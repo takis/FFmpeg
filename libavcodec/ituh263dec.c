@@ -27,6 +27,8 @@
  * h263 decoder.
  */
 
+#define UNCHECKED_BITSTREAM_READER 1
+
 //#define DEBUG
 #include <limits.h>
 
@@ -148,7 +150,7 @@ int ff_h263_decode_mba(MpegEncContext *s)
 }
 
 /**
- * decodes the group of blocks header or slice header.
+ * Decode the group of blocks header or slice header.
  * @return <0 if an error occurred
  */
 static int h263_decode_gob_header(MpegEncContext *s)
@@ -203,7 +205,7 @@ static int h263_decode_gob_header(MpegEncContext *s)
 }
 
 /**
- * finds the next resync_marker
+ * Find the next resync_marker.
  * @param p pointer to buffer to scan
  * @param end pointer to the end of the buffer
  * @return pointer to the next resync_marker, or end if none was found
@@ -224,7 +226,7 @@ const uint8_t *ff_h263_find_resync_marker(const uint8_t *restrict p, const uint8
 }
 
 /**
- * decodes the group of blocks / video packet header.
+ * Decode the group of blocks / video packet header.
  * @return bit position of the resync_marker, or <0 if none was found
  */
 int ff_h263_resync(MpegEncContext *s){
@@ -271,7 +273,7 @@ int ff_h263_resync(MpegEncContext *s){
 
 int h263_decode_motion(MpegEncContext * s, int pred, int f_code)
 {
-    int code, val, sign, shift, l;
+    int code, val, sign, shift;
     code = get_vlc2(&s->gb, mv_vlc.table, MV_VLC_BITS, 2);
 
     if (code == 0)
@@ -293,8 +295,7 @@ int h263_decode_motion(MpegEncContext * s, int pred, int f_code)
 
     /* modulo decoding */
     if (!s->h263_long_vectors) {
-        l = INT_BIT - 5 - f_code;
-        val = (val<<l)>>l;
+        val = sign_extend(val, 5 + f_code);
     } else {
         /* horrible h263 long vector mode */
         if (pred < -31 && val < -63)
@@ -307,7 +308,7 @@ int h263_decode_motion(MpegEncContext * s, int pred, int f_code)
 }
 
 
-/* Decodes RVLC of H.263+ UMV */
+/* Decode RVLC of H.263+ UMV */
 static int h263p_decode_umotion(MpegEncContext * s, int pred)
 {
    int code = 0, sign;
@@ -485,7 +486,7 @@ static int h263_decode_block(MpegEncContext * s, DCTELEM * block,
             level = get_bits(&s->gb, 8);
             if((level&0x7F) == 0){
                 av_log(s->avctx, AV_LOG_ERROR, "illegal dc %d at %d %d\n", level, s->mb_x, s->mb_y);
-                if(s->error_recognition >= FF_ER_COMPLIANT)
+                if(s->err_recognition & (AV_EF_BITSTREAM|AV_EF_COMPLIANT))
                     return -1;
             }
             if (level == 255)

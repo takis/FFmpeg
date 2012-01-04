@@ -26,22 +26,57 @@ tests/data/asynth1.sw: tests/audiogen$(HOSTEXESUF)
 	@mkdir -p tests/data
 	$(M)./$< $@
 
-tests/data/asynth1.sw tests/vsynth%/00.pgm: TAG = GEN
+tests/data/asynth-16000-1.sw: tests/audiogen$(HOSTEXESUF)
+	@mkdir -p tests/data
+	$(M)./$< $@ 16000 1
 
-include $(SRC_PATH)/tests/fate.mak
-include $(SRC_PATH)/tests/fate2.mak
+tests/data/mapchan-6ch.sw: tests/audiogen$(HOSTEXESUF)
+	@mkdir -p tests/data
+	$(M)./$< $@ 22050 6
+
+tests/data/mapchan-mono.sw: tests/audiogen$(HOSTEXESUF)
+	@mkdir -p tests/data
+	$(M)./$< $@ 22050 1
+
+tests/data/asynth%.sw tests/vsynth%/00.pgm: TAG = GEN
 
 include $(SRC_PATH)/tests/fate/aac.mak
+include $(SRC_PATH)/tests/fate/ac3.mak
 include $(SRC_PATH)/tests/fate/als.mak
 include $(SRC_PATH)/tests/fate/amrnb.mak
 include $(SRC_PATH)/tests/fate/amrwb.mak
+include $(SRC_PATH)/tests/fate/atrac.mak
+include $(SRC_PATH)/tests/fate/audio.mak
 include $(SRC_PATH)/tests/fate/dct.mak
+include $(SRC_PATH)/tests/fate/demux.mak
+include $(SRC_PATH)/tests/fate/dfa.mak
+include $(SRC_PATH)/tests/fate/dpcm.mak
+include $(SRC_PATH)/tests/fate/ea.mak
 include $(SRC_PATH)/tests/fate/fft.mak
 include $(SRC_PATH)/tests/fate/h264.mak
+include $(SRC_PATH)/tests/fate/image.mak
+include $(SRC_PATH)/tests/fate/indeo.mak
+include $(SRC_PATH)/tests/fate/libavcodec.mak
 include $(SRC_PATH)/tests/fate/libavutil.mak
+include $(SRC_PATH)/tests/fate/mapchan.mak
+include $(SRC_PATH)/tests/fate/lossless-audio.mak
+include $(SRC_PATH)/tests/fate/lossless-video.mak
+include $(SRC_PATH)/tests/fate/microsoft.mak
 include $(SRC_PATH)/tests/fate/mp3.mak
+include $(SRC_PATH)/tests/fate/mpc.mak
+include $(SRC_PATH)/tests/fate/pcm.mak
+include $(SRC_PATH)/tests/fate/prores.mak
+include $(SRC_PATH)/tests/fate/qt.mak
+include $(SRC_PATH)/tests/fate/qtrle.mak
+include $(SRC_PATH)/tests/fate/real.mak
+include $(SRC_PATH)/tests/fate/screen.mak
+include $(SRC_PATH)/tests/fate/utvideo.mak
+include $(SRC_PATH)/tests/fate/video.mak
+include $(SRC_PATH)/tests/fate/voice.mak
 include $(SRC_PATH)/tests/fate/vorbis.mak
-include $(SRC_PATH)/tests/fate/vp8.mak
+include $(SRC_PATH)/tests/fate/vpx.mak
+include $(SRC_PATH)/tests/fate/vqf.mak
+include $(SRC_PATH)/tests/fate/wma.mak
 
 FATE_ACODEC  = $(ACODEC_TESTS:%=fate-acodec-%)
 FATE_VSYNTH1 = $(VCODEC_TESTS:%=fate-vsynth1-%)
@@ -54,8 +89,11 @@ FATE_SEEK    = $(SEEK_TESTS:seek_%=fate-seek-%)
 FATE = $(FATE_ACODEC)                                                   \
        $(FATE_VCODEC)                                                   \
        $(FATE_LAVF)                                                     \
-       $(FATE_LAVFI)                                                    \
        $(FATE_SEEK)                                                     \
+
+FATE-$(CONFIG_AVFILTER) += $(FATE_LAVFI)
+
+FATE += $(FATE-yes)
 
 $(filter-out %-aref,$(FATE_ACODEC)): $(AREF)
 $(filter-out %-vref,$(FATE_VSYNTH1)): fate-vsynth1-vref
@@ -79,10 +117,12 @@ fate-lavfi:  $(FATE_LAVFI)
 fate-seek:   $(FATE_SEEK)
 
 ifdef SAMPLES
-FATE += $(FATE_TESTS)
+FATE += $(FATE_TESTS) $(FATE_TESTS-yes)
 fate-rsync:
-	rsync -vaLW rsync://fate-suite.libav.org/fate-suite/ $(SAMPLES)
+	rsync -vaLW --timeout=60 --contimeout=60 rsync://fate.ffmpeg.org/fate-suite/ $(SAMPLES)
 else
+fate::
+	@echo "warning: only a subset of the fate tests will be run because SAMPLES is not specified"
 fate-rsync:
 	@echo "use 'make fate-rsync SAMPLES=/path/to/samples' to sync the fate suite"
 $(FATE_TESTS):
@@ -91,11 +131,13 @@ endif
 
 FATE_UTILS = base64 tiny_psnr
 
-fate: $(FATE)
+TOOL = ffmpeg
 
-$(FATE): ffmpeg$(EXESUF) $(FATE_UTILS:%=tests/%$(HOSTEXESUF))
+fate:: $(FATE)
+
+$(FATE): $(TOOL)$(EXESUF) $(FATE_UTILS:%=tests/%$(HOSTEXESUF))
 	@echo "TEST    $(@:fate-%=%)"
-	$(Q)$(SRC_PATH)/tests/fate-run.sh $@ "$(SAMPLES)" "$(TARGET_EXEC)" "$(TARGET_PATH)" '$(CMD)' '$(CMP)' '$(REF)' '$(FUZZ)' '$(THREADS)' '$(THREAD_TYPE)'
+	$(Q)$(SRC_PATH)/tests/fate-run.sh $@ "$(SAMPLES)" "$(TARGET_EXEC)" "$(TARGET_PATH)" '$(CMD)' '$(CMP)' '$(REF)' '$(FUZZ)' '$(THREADS)' '$(THREAD_TYPE)' '$(TOOL)'
 
 fate-list:
 	@printf '%s\n' $(sort $(FATE))

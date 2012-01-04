@@ -27,6 +27,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 
 #define SCHl_TAG MKTAG('S', 'C', 'H', 'l')
 #define SEAD_TAG MKTAG('S', 'E', 'A', 'D')    /* Sxxx header */
@@ -220,6 +221,10 @@ static int process_audio_header_eacs(AVFormatContext *s)
 
     ea->sample_rate  = ea->big_endian ? avio_rb32(pb) : avio_rl32(pb);
     ea->bytes        = avio_r8(pb);   /* 1=8-bit, 2=16-bit */
+    if(ea->bytes == 0){
+        av_log(s,AV_LOG_ERROR,"the file is corrupted, ea->bytes = 0\n");
+        return AVERROR_INVALIDDATA;
+    }
     ea->num_channels = avio_r8(pb);
     compression_type = avio_r8(pb);
     avio_skip(pb, 13);
@@ -403,12 +408,12 @@ static int ea_read_header(AVFormatContext *s,
     EaDemuxContext *ea = s->priv_data;
     AVStream *st;
 
-    if (!process_ea_header(s))
+    if (process_ea_header(s)<=0)
         return AVERROR(EIO);
 
     if (ea->video_codec) {
         /* initialize the video decoder stream */
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
         ea->video_stream_index = st->index;
@@ -419,7 +424,7 @@ static int ea_read_header(AVFormatContext *s,
             st->need_parsing = AVSTREAM_PARSE_HEADERS;
         st->codec->codec_tag = 0;  /* no fourcc */
         if (ea->time_base.num)
-            av_set_pts_info(st, 64, ea->time_base.num, ea->time_base.den);
+            avpriv_set_pts_info(st, 64, ea->time_base.num, ea->time_base.den);
         st->codec->width = ea->width;
         st->codec->height = ea->height;
     }
@@ -437,10 +442,10 @@ static int ea_read_header(AVFormatContext *s,
         }
 
         /* initialize the audio decoder stream */
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
-        av_set_pts_info(st, 33, 1, ea->sample_rate);
+        avpriv_set_pts_info(st, 33, 1, ea->sample_rate);
         st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
         st->codec->codec_id = ea->audio_codec;
         st->codec->codec_tag = 0;  /* no tag */

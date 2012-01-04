@@ -26,6 +26,8 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
+#include "avio_internal.h"
 
 
 typedef struct CinFileHeader {
@@ -107,11 +109,11 @@ static int cin_read_header(AVFormatContext *s, AVFormatParameters *ap)
     cin->audio_buffer_size = 0;
 
     /* initialize the video decoder stream */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
 
-    av_set_pts_info(st, 32, 1, 12);
+    avpriv_set_pts_info(st, 32, 1, 12);
     cin->video_stream_index = st->index;
     st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     st->codec->codec_id = CODEC_ID_DSICINVIDEO;
@@ -120,20 +122,19 @@ static int cin_read_header(AVFormatContext *s, AVFormatParameters *ap)
     st->codec->height = hdr->video_frame_height;
 
     /* initialize the audio decoder stream */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
 
-    av_set_pts_info(st, 32, 1, 22050);
+    avpriv_set_pts_info(st, 32, 1, 22050);
     cin->audio_stream_index = st->index;
     st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id = CODEC_ID_DSICINAUDIO;
     st->codec->codec_tag = 0;  /* no tag */
     st->codec->channels = 1;
     st->codec->sample_rate = 22050;
-    st->codec->bits_per_coded_sample = 16;
+    st->codec->bits_per_coded_sample = 8;
     st->codec->bit_rate = st->codec->sample_rate * st->codec->bits_per_coded_sample * st->codec->channels;
-    st->codec->block_align = st->codec->channels * st->codec->bits_per_coded_sample;
 
     return 0;
 }
@@ -179,6 +180,8 @@ static int cin_read_packet(AVFormatContext *s, AVPacket *pkt)
         /* palette and video packet */
         pkt_size = (palette_type + 3) * hdr->pal_colors_count + hdr->video_frame_size;
 
+        pkt_size = ffio_limit(pb, pkt_size);
+
         ret = av_new_packet(pkt, 4 + pkt_size);
         if (ret < 0)
             return ret;
@@ -211,7 +214,8 @@ static int cin_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     pkt->stream_index = cin->audio_stream_index;
     pkt->pts = cin->audio_stream_pts;
-    cin->audio_stream_pts += cin->audio_buffer_size * 2 / cin->file_header.audio_frame_size;
+    pkt->duration = cin->audio_buffer_size - (pkt->pts == 0);
+    cin->audio_stream_pts += pkt->duration;
     cin->audio_buffer_size = 0;
     return 0;
 }

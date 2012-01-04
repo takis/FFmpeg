@@ -24,6 +24,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 #include "apetag.h"
 
 /* The earliest and latest file formats supported by this library */
@@ -273,6 +274,8 @@ static int ape_read_header(AVFormatContext * s, AVFormatParameters * ap)
 
     if (ape->seektablelength > 0) {
         ape->seektable = av_malloc(ape->seektablelength);
+        if (!ape->seektable)
+            return AVERROR(ENOMEM);
         for (i = 0; i < ape->seektablelength / sizeof(uint32_t); i++)
             ape->seektable[i] = avio_rl32(pb);
     }
@@ -311,7 +314,7 @@ static int ape_read_header(AVFormatContext * s, AVFormatParameters * ap)
            ape->compressiontype);
 
     /* now we are ready: build format streams */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return -1;
 
@@ -328,7 +331,7 @@ static int ape_read_header(AVFormatContext * s, AVFormatParameters * ap)
     st->nb_frames = ape->totalframes;
     st->start_time = 0;
     st->duration  = total_blocks / MAC_SUBFRAME_SIZE;
-    av_set_pts_info(st, 64, MAC_SUBFRAME_SIZE, ape->samplerate);
+    avpriv_set_pts_info(st, 64, MAC_SUBFRAME_SIZE, ape->samplerate);
 
     st->codec->extradata = av_malloc(APE_EXTRADATA_SIZE);
     st->codec->extradata_size = APE_EXTRADATA_SIZE;

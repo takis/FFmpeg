@@ -21,6 +21,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 #include "riff.h"
 
 #define DXA_EXTRA_SIZE  9
@@ -87,7 +88,7 @@ static int dxa_read_header(AVFormatContext *s, AVFormatParameters *ap)
     h = avio_rb16(pb);
     c->has_sound = 0;
 
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return -1;
 
@@ -100,7 +101,7 @@ static int dxa_read_header(AVFormatContext *s, AVFormatParameters *ap)
         avio_skip(pb, 16);
         fsize = avio_rl32(pb);
 
-        ast = av_new_stream(s, 0);
+        ast = avformat_new_stream(s, NULL);
         if (!ast)
             return -1;
         ret = ff_get_wav_header(pb, ast->codec, fsize);
@@ -127,7 +128,7 @@ static int dxa_read_header(AVFormatContext *s, AVFormatParameters *ap)
     st->codec->width      = w;
     st->codec->height     = h;
     av_reduce(&den, &num, den, num, (1UL<<31)-1);
-    av_set_pts_info(st, 33, num, den);
+    avpriv_set_pts_info(st, 33, num, den);
     /* flags & 0x80 means that image is interlaced,
      * flags & 0x40 means that image has double height
      * either way set true height

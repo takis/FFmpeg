@@ -65,7 +65,11 @@ void  free(void *ptr);
    memory allocator. You do not need to suppress this file because the
    linker will do it automatically. */
 
-#define MAX_MALLOC_SIZE INT_MAX
+static size_t max_alloc_size= INT_MAX;
+
+void av_max_alloc(size_t max){
+    max_alloc_size = max;
+}
 
 void *av_malloc(size_t size)
 {
@@ -75,7 +79,7 @@ void *av_malloc(size_t size)
 #endif
 
     /* let's disallow possible ambiguous cases */
-    if (size > (MAX_MALLOC_SIZE-32))
+    if (size > (max_alloc_size-32))
         return NULL;
 
 #if CONFIG_MEMALIGN_HACK
@@ -86,7 +90,7 @@ void *av_malloc(size_t size)
     ptr = (char*)ptr + diff;
     ((char*)ptr)[-1]= diff;
 #elif HAVE_POSIX_MEMALIGN
-    if (size) //OSX on SDK 10.6 has a broken posix_memalign implementation
+    if (size) //OS X on SDK 10.6 has a broken posix_memalign implementation
     if (posix_memalign(&ptr,ALIGN,size))
         ptr = NULL;
 #elif HAVE_MEMALIGN
@@ -130,17 +134,34 @@ void *av_realloc(void *ptr, size_t size)
 #endif
 
     /* let's disallow possible ambiguous cases */
-    if (size > (MAX_MALLOC_SIZE-16))
+    if (size > (max_alloc_size-32))
         return NULL;
 
 #if CONFIG_MEMALIGN_HACK
     //FIXME this isn't aligned correctly, though it probably isn't needed
     if(!ptr) return av_malloc(size);
     diff= ((char*)ptr)[-1];
-    return (char*)realloc((char*)ptr - diff, size + diff) + diff;
+    ptr= realloc((char*)ptr - diff, size + diff);
+    if(ptr) ptr = (char*)ptr + diff;
+    return ptr;
 #else
     return realloc(ptr, size + !size);
 #endif
+}
+
+void *av_realloc_f(void *ptr, size_t nelem, size_t elsize)
+{
+    size_t size;
+    void *r;
+
+    if (av_size_mult(elsize, nelem, &size)) {
+        av_free(ptr);
+        return NULL;
+    }
+    r = av_realloc(ptr, size);
+    if (!r && size)
+        av_free(ptr);
+    return r;
 }
 
 void av_free(void *ptr)
@@ -166,6 +187,13 @@ void *av_mallocz(size_t size)
     if (ptr)
         memset(ptr, 0, size);
     return ptr;
+}
+
+void *av_calloc(size_t nmemb, size_t size)
+{
+    if (size <= 0 || nmemb >= INT_MAX / size)
+        return NULL;
+    return av_mallocz(nmemb * size);
 }
 
 char *av_strdup(const char *s)

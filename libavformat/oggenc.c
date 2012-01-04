@@ -72,7 +72,7 @@ typedef struct {
 
 static const AVOption options[] = {
     { "oggpagesize", "Set preferred Ogg page size.",
-      offsetof(OGGContext, pref_size), FF_OPT_TYPE_INT, {.dbl = 0}, 0, MAX_PAGE_SIZE, AV_OPT_FLAG_ENCODING_PARAM},
+      offsetof(OGGContext, pref_size), AV_OPT_TYPE_INT, {.dbl = 0}, 0, MAX_PAGE_SIZE, AV_OPT_FLAG_ENCODING_PARAM},
     { NULL },
 };
 
@@ -274,7 +274,7 @@ static int ogg_build_flac_headers(AVCodecContext *avctx,
     uint8_t *streaminfo;
     uint8_t *p;
 
-    if (!ff_flac_is_extradata_valid(avctx, &format, &streaminfo))
+    if (!avpriv_flac_is_extradata_valid(avctx, &format, &streaminfo))
         return -1;
 
     // first packet: STREAMINFO
@@ -343,9 +343,9 @@ static int ogg_write_header(AVFormatContext *s)
         unsigned serial_num = i;
 
         if (st->codec->codec_type == AVMEDIA_TYPE_AUDIO)
-            av_set_pts_info(st, 64, 1, st->codec->sample_rate);
+            avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
         else if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
-            av_set_pts_info(st, 64, st->codec->time_base.num, st->codec->time_base.den);
+            avpriv_set_pts_info(st, 64, st->codec->time_base.num, st->codec->time_base.den);
         if (st->codec->codec_id != CODEC_ID_VORBIS &&
             st->codec->codec_id != CODEC_ID_THEORA &&
             st->codec->codec_id != CODEC_ID_SPEEX  &&
@@ -397,7 +397,7 @@ static int ogg_write_header(AVFormatContext *s)
             int header_type = st->codec->codec_id == CODEC_ID_VORBIS ? 3 : 0x81;
             int framing_bit = st->codec->codec_id == CODEC_ID_VORBIS ? 1 : 0;
 
-            if (ff_split_xiph_headers(st->codec->extradata, st->codec->extradata_size,
+            if (avpriv_split_xiph_headers(st->codec->extradata, st->codec->extradata_size,
                                       st->codec->codec_id == CODEC_ID_VORBIS ? 30 : 42,
                                       oggstream->header, oggstream->header_len) < 0) {
                 av_log(s, AV_LOG_ERROR, "Extradata corrupted\n");
@@ -516,9 +516,11 @@ static int ogg_write_trailer(AVFormatContext *s)
         OGGStreamContext *oggstream = st->priv_data;
         if (st->codec->codec_id == CODEC_ID_FLAC ||
             st->codec->codec_id == CODEC_ID_SPEEX) {
-            av_free(oggstream->header[0]);
-            av_free(oggstream->header[1]);
+            av_freep(&oggstream->header[0]);
+            av_freep(&oggstream->header[1]);
         }
+        else
+            av_freep(&oggstream->header[1]);
         av_freep(&st->priv_data);
     }
     return 0;

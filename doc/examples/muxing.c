@@ -40,7 +40,7 @@
 #undef exit
 
 /* 5 seconds stream duration */
-#define STREAM_DURATION   5.0
+#define STREAM_DURATION   200.0
 #define STREAM_FRAME_RATE 25 /* 25 images/s */
 #define STREAM_NB_FRAMES  ((int)(STREAM_DURATION * STREAM_FRAME_RATE))
 #define STREAM_PIX_FMT PIX_FMT_YUV420P /* default pix_fmt */
@@ -50,11 +50,11 @@ static int sws_flags = SWS_BICUBIC;
 /**************************************************************/
 /* audio output */
 
-float t, tincr, tincr2;
-int16_t *samples;
-uint8_t *audio_outbuf;
-int audio_outbuf_size;
-int audio_input_frame_size;
+static float t, tincr, tincr2;
+static int16_t *samples;
+static uint8_t *audio_outbuf;
+static int audio_outbuf_size;
+static int audio_input_frame_size;
 
 /*
  * add an audio output stream
@@ -64,11 +64,12 @@ static AVStream *add_audio_stream(AVFormatContext *oc, enum CodecID codec_id)
     AVCodecContext *c;
     AVStream *st;
 
-    st = av_new_stream(oc, 1);
+    st = avformat_new_stream(oc, NULL);
     if (!st) {
         fprintf(stderr, "Could not alloc stream\n");
         exit(1);
     }
+    st->id = 1;
 
     c = st->codec;
     c->codec_id = codec_id;
@@ -189,25 +190,34 @@ static void close_audio(AVFormatContext *oc, AVStream *st)
 /**************************************************************/
 /* video output */
 
-AVFrame *picture, *tmp_picture;
-uint8_t *video_outbuf;
-int frame_count, video_outbuf_size;
+static AVFrame *picture, *tmp_picture;
+static uint8_t *video_outbuf;
+static int frame_count, video_outbuf_size;
 
 /* add a video output stream */
 static AVStream *add_video_stream(AVFormatContext *oc, enum CodecID codec_id)
 {
     AVCodecContext *c;
     AVStream *st;
+    AVCodec *codec;
 
-    st = av_new_stream(oc, 0);
+    st = avformat_new_stream(oc, NULL);
     if (!st) {
         fprintf(stderr, "Could not alloc stream\n");
         exit(1);
     }
 
     c = st->codec;
+
+    /* find the video encoder */
+    codec = avcodec_find_encoder(codec_id);
+    if (!codec) {
+        fprintf(stderr, "codec not found\n");
+        exit(1);
+    }
+    avcodec_get_context_defaults3(c, codec);
+
     c->codec_id = codec_id;
-    c->codec_type = AVMEDIA_TYPE_VIDEO;
 
     /* put sample parameters */
     c->bit_rate = 400000;
@@ -444,7 +454,7 @@ int main(int argc, char **argv)
                "The output format is automatically guessed according to the file extension.\n"
                "Raw images can also be output by using '%%d' in the filename\n"
                "\n", argv[0]);
-        exit(1);
+        return 1;
     }
 
     filename = argv[1];
@@ -456,7 +466,7 @@ int main(int argc, char **argv)
         avformat_alloc_output_context2(&oc, NULL, "mpeg", filename);
     }
     if (!oc) {
-        exit(1);
+        return 1;
     }
     fmt = oc->oformat;
 
@@ -484,13 +494,13 @@ int main(int argc, char **argv)
     if (!(fmt->flags & AVFMT_NOFILE)) {
         if (avio_open(&oc->pb, filename, AVIO_FLAG_WRITE) < 0) {
             fprintf(stderr, "Could not open '%s'\n", filename);
-            exit(1);
+            return 1;
         }
     }
 
     /* write the stream header, if any */
     av_write_header(oc);
-
+    picture->pts = 0;
     for(;;) {
         /* compute current audio and video time */
         if (audio_st)
@@ -512,6 +522,7 @@ int main(int argc, char **argv)
             write_audio_frame(oc, audio_st);
         } else {
             write_video_frame(oc, video_st);
+            picture->pts++;
         }
     }
 

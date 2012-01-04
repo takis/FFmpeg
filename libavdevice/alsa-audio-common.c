@@ -31,6 +31,7 @@
 #include <alsa/asoundlib.h>
 #include "avdevice.h"
 #include "libavutil/avassert.h"
+#include "libavutil/audioconvert.h"
 
 #include "alsa-audio.h"
 
@@ -142,7 +143,7 @@ switch(format) {\
     case FORMAT_F32: s->reorder_func = alsa_reorder_f32_out_ ##layout;   break;\
 }
 
-static av_cold int find_reorder_func(AlsaData *s, int codec_id, int64_t layout, int out)
+static av_cold int find_reorder_func(AlsaData *s, int codec_id, uint64_t layout, int out)
 {
     int format;
 
@@ -193,7 +194,7 @@ av_cold int ff_alsa_open(AVFormatContext *ctx, snd_pcm_stream_t mode,
     snd_pcm_t *h;
     snd_pcm_hw_params_t *hw_params;
     snd_pcm_uframes_t buffer_size, period_size;
-    int64_t layout = ctx->streams[0]->codec->channel_layout;
+    uint64_t layout = ctx->streams[0]->codec->channel_layout;
 
     if (ctx->filename[0] == 0) audio_device = "default";
     else                       audio_device = ctx->filename;
@@ -319,7 +320,8 @@ av_cold int ff_alsa_close(AVFormatContext *s1)
     AlsaData *s = s1->priv_data;
 
     av_freep(&s->reorder_buf);
-    ff_timefilter_destroy(s->timefilter);
+    if (CONFIG_ALSA_INDEV)
+        ff_timefilter_destroy(s->timefilter);
     snd_pcm_close(s->h);
     return 0;
 }

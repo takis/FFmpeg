@@ -35,6 +35,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 
 #define AUD_HEADER_SIZE 12
 #define AUD_CHUNK_PREAMBLE_SIZE 8
@@ -144,10 +145,10 @@ static int wsaud_read_header(AVFormatContext *s,
     wsaud->audio_bits = (((header[10] & 0x2) >> 1) + 1) * 8;
 
     /* initialize the audio decoder stream */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
-    av_set_pts_info(st, 33, 1, wsaud->audio_samplerate);
+    avpriv_set_pts_info(st, 33, 1, wsaud->audio_samplerate);
     st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id = wsaud->audio_type;
     st->codec->codec_tag = 0;  /* no tag */
@@ -221,10 +222,10 @@ static int wsvqa_read_header(AVFormatContext *s,
     unsigned int chunk_size;
 
     /* initialize the video decoder stream */
-    st = av_new_stream(s, 0);
+    st = avformat_new_stream(s, NULL);
     if (!st)
         return AVERROR(ENOMEM);
-    av_set_pts_info(st, 33, 1, VQA_FRAMERATE);
+    avpriv_set_pts_info(st, 33, 1, VQA_FRAMERATE);
     wsvqa->video_stream_index = st->index;
     st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     st->codec->codec_id = CODEC_ID_WS_VQA;
@@ -247,10 +248,10 @@ static int wsvqa_read_header(AVFormatContext *s,
 
     /* initialize the audio decoder stream for VQA v1 or nonzero samplerate */
     if (AV_RL16(&header[24]) || (AV_RL16(&header[0]) == 1 && AV_RL16(&header[2]) == 1)) {
-        st = av_new_stream(s, 0);
+        st = avformat_new_stream(s, NULL);
         if (!st)
             return AVERROR(ENOMEM);
-        av_set_pts_info(st, 33, 1, VQA_FRAMERATE);
+        avpriv_set_pts_info(st, 33, 1, VQA_FRAMERATE);
         st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
         if (AV_RL16(&header[0]) == 1)
             st->codec->codec_id = CODEC_ID_WESTWOOD_SND1;
@@ -277,10 +278,8 @@ static int wsvqa_read_header(AVFormatContext *s,
     /* there are 0 or more chunks before the FINF chunk; iterate until
      * FINF has been skipped and the file will be ready to be demuxed */
     do {
-        if (avio_read(pb, scratch, VQA_PREAMBLE_SIZE) != VQA_PREAMBLE_SIZE) {
-            av_free(st->codec->extradata);
+        if (avio_read(pb, scratch, VQA_PREAMBLE_SIZE) != VQA_PREAMBLE_SIZE)
             return AVERROR(EIO);
-        }
         chunk_tag = AV_RB32(&scratch[0]);
         chunk_size = AV_RB32(&scratch[4]);
 
@@ -323,17 +322,19 @@ static int wsvqa_read_packet(AVFormatContext *s,
     while (avio_read(pb, preamble, VQA_PREAMBLE_SIZE) == VQA_PREAMBLE_SIZE) {
         chunk_type = AV_RB32(&preamble[0]);
         chunk_size = AV_RB32(&preamble[4]);
+
         skip_byte = chunk_size & 0x01;
+
+        if ((chunk_type == SND2_TAG || chunk_type == SND1_TAG) && wsvqa->audio_channels == 0) {
+            av_log(s, AV_LOG_ERROR, "audio chunk without any audio header information found\n");
+            return AVERROR_INVALIDDATA;
+        }
 
         if ((chunk_type == SND1_TAG) || (chunk_type == SND2_TAG) || (chunk_type == VQFR_TAG)) {
 
-            if (av_new_packet(pkt, chunk_size))
+            ret= av_get_packet(pb, pkt, chunk_size);
+            if (ret<0)
                 return AVERROR(EIO);
-            ret = avio_read(pb, pkt->data, chunk_size);
-            if (ret != chunk_size) {
-                av_free_packet(pkt);
-                return AVERROR(EIO);
-            }
 
             if (chunk_type == SND2_TAG) {
                 pkt->stream_index = wsvqa->audio_stream_index;

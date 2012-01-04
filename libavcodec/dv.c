@@ -37,7 +37,7 @@
  * @file
  * DV codec.
  */
-#define ALT_BITSTREAM_READER
+
 #include "libavutil/pixdesc.h"
 #include "avcodec.h"
 #include "dsputil.h"
@@ -349,7 +349,7 @@ static av_cold int dvvideo_init(AVCodecContext *avctx)
 
 static av_cold int dvvideo_init_encoder(AVCodecContext *avctx)
 {
-    if (!ff_dv_codec_profile(avctx)) {
+    if (!avpriv_dv_codec_profile(avctx)) {
         av_log(avctx, AV_LOG_ERROR, "Found no DV profile for %ix%i %s video\n",
                avctx->width, avctx->height, av_get_pix_fmt_name(avctx->pix_fmt));
         return -1;
@@ -364,7 +364,7 @@ typedef struct BlockInfo {
     uint8_t pos; /* position in block */
     void (*idct_put)(uint8_t *dest, int line_size, DCTELEM *block);
     uint8_t partial_bit_count;
-    uint16_t partial_bit_buffer;
+    uint32_t partial_bit_buffer;
     int shift_offset;
 } BlockInfo;
 
@@ -392,8 +392,7 @@ static void dv_decode_ac(GetBitContext *gb, BlockInfo *mb, DCTELEM *block)
 
     /* if we must parse a partial VLC, we do it here */
     if (partial_bit_count > 0) {
-        re_cache = ((unsigned)re_cache >> partial_bit_count) |
-                   (mb->partial_bit_buffer << (sizeof(re_cache) * 8 - partial_bit_count));
+        re_cache = re_cache >> partial_bit_count | mb->partial_bit_buffer;
         re_index -= partial_bit_count;
         mb->partial_bit_count = 0;
     }
@@ -416,7 +415,7 @@ static void dv_decode_ac(GetBitContext *gb, BlockInfo *mb, DCTELEM *block)
         if (re_index + vlc_len > last_index) {
             /* should be < 16 bits otherwise a codeword could have been parsed */
             mb->partial_bit_count = last_index - re_index;
-            mb->partial_bit_buffer = NEG_USR32(re_cache, mb->partial_bit_count);
+            mb->partial_bit_buffer = re_cache & ~(-1u >> mb->partial_bit_count);
             re_index = last_index;
             break;
         }
@@ -758,7 +757,7 @@ static av_always_inline int dv_guess_dct_mode(DVVideoContext *s, uint8_t *data, 
         if (ps > 0) {
             int is = s->ildct_cmp(NULL, data           , NULL, linesize<<1, 4) +
                      s->ildct_cmp(NULL, data + linesize, NULL, linesize<<1, 4);
-            return (ps > is);
+            return ps > is;
         }
     }
 
@@ -1072,7 +1071,7 @@ static int dvvideo_decode_frame(AVCodecContext *avctx,
     const uint8_t* vsc_pack;
     int apt, is16_9;
 
-    s->sys = ff_dv_frame_profile(s->sys, buf, buf_size);
+    s->sys = avpriv_dv_frame_profile2(avctx, s->sys, buf, buf_size);
     if (!s->sys || buf_size < s->sys->frame_size || dv_init_dynamic_tables(s->sys)) {
         av_log(avctx, AV_LOG_ERROR, "could not find dv frame profile\n");
         return -1; /* NOTE: we only accept several full frames */
@@ -1246,7 +1245,7 @@ static int dvvideo_encode_frame(AVCodecContext *c, uint8_t *buf, int buf_size,
 {
     DVVideoContext *s = c->priv_data;
 
-    s->sys = ff_dv_codec_profile(c);
+    s->sys = avpriv_dv_codec_profile(c);
     if (!s->sys || buf_size < s->sys->frame_size || dv_init_dynamic_tables(s->sys))
         return -1;
 

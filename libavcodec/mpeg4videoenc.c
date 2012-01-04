@@ -20,6 +20,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/log.h"
+#include "libavutil/opt.h"
 #include "mpegvideo.h"
 #include "h263.h"
 #include "mpeg4video.h"
@@ -236,7 +238,7 @@ void ff_clean_mpeg4_qscales(MpegEncContext *s){
 
 
 /**
- * encodes the dc value.
+ * Encode the dc value.
  * @param n block index (0-3 are luma, 4-5 are chroma)
  */
 static inline void mpeg4_encode_dc(PutBitContext * s, int level, int n)
@@ -289,7 +291,7 @@ static inline int mpeg4_get_dc_length(int level, int n){
 }
 
 /**
- * encodes a 8x8 block
+ * Encode an 8x8 block.
  * @param n block index (0-3 are luma, 4-5 are chroma)
  */
 static inline void mpeg4_encode_block(MpegEncContext * s, DCTELEM * block, int n, int intra_dc,
@@ -421,6 +423,46 @@ static inline void mpeg4_encode_blocks(MpegEncContext * s, DCTELEM block[6][64],
             }
         }
     }
+}
+
+static inline int get_b_cbp(MpegEncContext * s, DCTELEM block[6][64],
+                            int motion_x, int motion_y, int mb_type)
+{
+    int cbp = 0, i;
+
+    if (s->flags & CODEC_FLAG_CBP_RD) {
+        int score = 0;
+        const int lambda = s->lambda2 >> (FF_LAMBDA_SHIFT - 6);
+
+        for (i = 0; i < 6; i++)
+            if (s->coded_score[i] < 0) {
+                score += s->coded_score[i];
+                cbp   |= 1 << (5 - i);
+            }
+
+        if (cbp) {
+            int zero_score = -6;
+            if ((motion_x | motion_y | s->dquant | mb_type) == 0)
+                zero_score -= 4; //2*MV + mb_type + cbp bit
+
+            zero_score *= lambda;
+            if (zero_score <= score)
+                cbp = 0;
+        }
+
+        for (i = 0; i < 6; i++) {
+            if (s->block_last_index[i] >= 0 && ((cbp >> (5 - i)) & 1) == 0) {
+                s->block_last_index[i] = -1;
+                s->dsp.clear_block(s->block[i]);
+            }
+        }
+    } else {
+        for (i = 0; i < 6; i++) {
+            if (s->block_last_index[i] >= 0)
+                cbp |= 1 << (5 - i);
+        }
+    }
+    return cbp;
 }
 
 //FIXME this is duplicated to h263.c
@@ -834,8 +876,8 @@ static void mpeg4_encode_gop_header(MpegEncContext * s){
     s->last_time_base= FFUDIV(time, s->avctx->time_base.den);
 
     seconds= FFUDIV(time, s->avctx->time_base.den);
-    minutes= FFUDIV(seconds, 60); FFUMOD(seconds, 60);
-    hours  = FFUDIV(minutes, 60); FFUMOD(minutes, 60);
+    minutes= FFUDIV(seconds, 60); seconds = FFUMOD(seconds, 60);
+    hours  = FFUDIV(minutes, 60); minutes = FFUMOD(minutes, 60);
     hours  = FFUMOD(hours  , 24);
 
     put_bits(&s->pb, 5, hours);
@@ -1211,7 +1253,6 @@ static av_cold int encode_init(AVCodecContext *avctx)
     s->inter_ac_vlc_length     = uni_mpeg4_inter_rl_len;
     s->inter_ac_vlc_last_length= uni_mpeg4_inter_rl_len + 128*64;
     s->luma_dc_vlc_length= uni_DCtab_lum_len;
-    s->chroma_dc_vlc_length= uni_DCtab_chrom_len;
     s->ac_esc_length= 7+2+1+6+1+12+1;
     s->y_dc_scale_table= ff_mpeg4_y_dc_scale_table;
     s->c_dc_scale_table= ff_mpeg4_c_dc_scale_table;
@@ -1266,8 +1307,8 @@ void ff_mpeg4_merge_partitions(MpegEncContext *s)
     flush_put_bits(&s->tex_pb);
 
     set_put_bits_buffer_size(&s->pb, s->pb2.buf_end - s->pb.buf);
-    ff_copy_bits(&s->pb, s->pb2.buf   , pb2_len);
-    ff_copy_bits(&s->pb, s->tex_pb.buf, tex_pb_len);
+    avpriv_copy_bits(&s->pb, s->pb2.buf   , pb2_len);
+    avpriv_copy_bits(&s->pb, s->tex_pb.buf, tex_pb_len);
     s->last_bits= put_bits_count(&s->pb);
 }
 
@@ -1284,6 +1325,21 @@ void ff_mpeg4_encode_video_packet_header(MpegEncContext *s)
     put_bits(&s->pb, 1, 0); /* no HEC */
 }
 
+#define OFFSET(x) offsetof(MpegEncContext, x)
+#define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
+static const AVOption options[] = {
+    { "data_partitioning",       "Use data partitioning.",      OFFSET(data_partitioning), AV_OPT_TYPE_INT, { 0 }, 0, 1, VE },
+    { "alternate_scan",          "Enable alternate scantable.", OFFSET(alternate_scan),    AV_OPT_TYPE_INT, { 0 }, 0, 1, VE },
+    { NULL },
+};
+
+static const AVClass mpeg4enc_class = {
+    .class_name = "MPEG4 encoder",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
 AVCodec ff_mpeg4_encoder = {
     .name           = "mpeg4",
     .type           = AVMEDIA_TYPE_VIDEO,
@@ -1295,4 +1351,5 @@ AVCodec ff_mpeg4_encoder = {
     .pix_fmts= (const enum PixelFormat[]){PIX_FMT_YUV420P, PIX_FMT_NONE},
     .capabilities= CODEC_CAP_DELAY | CODEC_CAP_SLICE_THREADS,
     .long_name= NULL_IF_CONFIG_SMALL("MPEG-4 part 2"),
+    .priv_class     = &mpeg4enc_class,
 };

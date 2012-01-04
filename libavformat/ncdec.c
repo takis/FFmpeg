@@ -22,6 +22,7 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "internal.h"
 
 #define NC_VIDEO_FLAG 0x1A5
 
@@ -45,7 +46,7 @@ static int nc_probe(AVProbeData *probe_packet)
 
 static int nc_read_header(AVFormatContext *s, AVFormatParameters *ap)
 {
-    AVStream *st = av_new_stream(s, 0);
+    AVStream *st = avformat_new_stream(s, NULL);
 
     if (!st)
         return AVERROR(ENOMEM);
@@ -54,7 +55,7 @@ static int nc_read_header(AVFormatContext *s, AVFormatParameters *ap)
     st->codec->codec_id   = CODEC_ID_MPEG4;
     st->need_parsing      = AVSTREAM_PARSE_FULL;
 
-    av_set_pts_info(st, 64, 1, 100);
+    avpriv_set_pts_info(st, 64, 1, 100);
 
     return 0;
 }
