@@ -51,10 +51,9 @@
  */
 int ff_jpegls_decode_lse(MJpegDecodeContext *s)
 {
-    int len, id;
+    int id;
 
-    /* XXX: verify len field validity */
-    len = get_bits(&s->gb, 16);
+    skip_bits(&s->gb, 16);  /* length: FIXME: verify field validity */
     id = get_bits(&s->gb, 8);
 
     switch(id){
@@ -198,6 +197,9 @@ static inline void ls_decode_line(JLSState *state, MJpegDecodeContext *s, void *
             r = ff_log2_run[state->run_index[comp]];
             if(r)
                 r = get_bits_long(&s->gb, r);
+            if(x + r * stride > w) {
+                r = (w - x) / stride;
+            }
             for(i = 0; i < r; i++) {
                 W(dst, x, Ra);
                 x += stride;
@@ -367,11 +369,11 @@ int ff_jpegls_decode_picture(MJpegDecodeContext *s, int near, int point_transfor
 AVCodec ff_jpegls_decoder = {
     .name           = "jpegls",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_JPEGLS,
+    .id             = AV_CODEC_ID_JPEGLS,
     .priv_data_size = sizeof(MJpegDecodeContext),
     .init           = ff_mjpeg_decode_init,
     .close          = ff_mjpeg_decode_end,
     .decode         = ff_mjpeg_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name = NULL_IF_CONFIG_SMALL("JPEG-LS"),
+    .long_name      = NULL_IF_CONFIG_SMALL("JPEG-LS"),
 };

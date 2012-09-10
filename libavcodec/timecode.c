@@ -22,7 +22,12 @@
 /**
  * @file
  * Timecode helpers
+ * This *private* API is deprecated, please use the one available in libavutil instead.
  */
+
+#include "version.h"
+
+#if FF_API_OLD_TIMECODE
 
 #include <stdio.h>
 #include "timecode.h"
@@ -83,15 +88,20 @@ char *avpriv_timecode_to_string(char *buf, const struct ff_timecode *tc, unsigne
 {
     int frame_num = tc->start + frame;
     int fps = (tc->rate.num + tc->rate.den/2) / tc->rate.den;
-    int hh, mm, ss, ff;
+    int hh, mm, ss, ff, neg = 0;
 
     if (tc->drop)
         frame_num = avpriv_framenum_to_drop_timecode(frame_num);
+    if (frame_num < 0) {
+        frame_num = -frame_num;
+        neg = 1;
+    }
     ff = frame_num % fps;
     ss = frame_num / fps        % 60;
     mm = frame_num / (fps*60)   % 60;
-    hh = frame_num / (fps*3600) % 24;
-    snprintf(buf, sizeof("hh:mm:ss.ff"), "%02d:%02d:%02d%c%02d",
+    hh = frame_num / (fps*3600);
+    snprintf(buf, 16, "%s%02d:%02d:%02d%c%02d",
+             neg ? "-" : "",
              hh, mm, ss, tc->drop ? ';' : ':', ff);
     return buf;
 }
@@ -123,7 +133,6 @@ int avpriv_init_smpte_timecode(void *avcl, struct ff_timecode *tc)
     return 0;
 }
 
-#if FF_API_OLD_TIMECODE
 int ff_framenum_to_drop_timecode(int frame_num)
 {
     return avpriv_framenum_to_drop_timecode(frame_num);

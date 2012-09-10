@@ -631,8 +631,7 @@ EXCLUDE_SYMLINKS       = NO
 # for example use the pattern */test/*
 
 EXCLUDE_PATTERNS       = *.git \
-                         *.d \
-                         avconv.c
+                         *.d
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -1379,7 +1378,7 @@ PREDEFINED             = "__attribute__(x)=" \
                          "DEF(x)=x ## _TMPL" \
                          HAVE_AV_CONFIG_H \
                          HAVE_MMX \
-                         HAVE_MMX2 \
+                         HAVE_MMXEXT \
                          HAVE_AMD3DNOW \
                          "DECLARE_ALIGNED(a,t,n)=t n" \
                          "offsetof(x,y)=0x42"

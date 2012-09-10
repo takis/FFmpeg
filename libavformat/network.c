@@ -21,6 +21,7 @@
 #include "libavutil/avutil.h"
 #include "network.h"
 #include "libavcodec/internal.h"
+#include "libavutil/mem.h"
 
 #define THREADS (HAVE_PTHREADS || (defined(WIN32) && !defined(__MINGW32CE__)))
 
@@ -165,6 +166,14 @@ int ff_neterrno(void)
         return AVERROR(EAGAIN);
     case WSAEINTR:
         return AVERROR(EINTR);
+    case WSAEPROTONOSUPPORT:
+        return AVERROR(EPROTONOSUPPORT);
+    case WSAETIMEDOUT:
+        return AVERROR(ETIMEDOUT);
+    case WSAECONNREFUSED:
+        return AVERROR(ECONNREFUSED);
+    case WSAEINPROGRESS:
+        return AVERROR(EINPROGRESS);
     }
     return -err;
 }
@@ -183,4 +192,3 @@ int ff_is_multicast_address(struct sockaddr *addr)
 
     return 0;
 }
-

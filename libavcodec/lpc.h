@@ -1,4 +1,4 @@
-/**
+/*
  * LPC utility code
  * Copyright (c) 2006  Justin Ruggles <justin.ruggles@gmail.com>
  *
@@ -51,6 +51,7 @@ typedef struct LPCContext {
     int blocksize;
     int max_order;
     enum FFLPCType lpc_type;
+    double *windowed_buffer;
     double *windowed_samples;
 
     /**

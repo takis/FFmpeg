@@ -22,15 +22,25 @@
 #include "libavutil/avstring.h"
 #include "avformat.h"
 #include <fcntl.h>
-#if HAVE_SETMODE
+#if HAVE_IO_H
 #include <io.h>
 #endif
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include <stdlib.h>
 #include "os_support.h"
 #include "url.h"
 
+/* Some systems may not have S_ISFIFO */
+#ifndef S_ISFIFO
+#  ifdef S_IFIFO
+#    define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
+#  else
+#    define S_ISFIFO(m) 0
+#  endif
+#endif
 
 /* standard file protocol */
 
@@ -72,6 +82,7 @@ static int file_open(URLContext *h, const char *filename, int flags)
 {
     int access;
     int fd;
+    struct stat st;
 
     av_strstart(filename, "file:", &filename);
 
@@ -89,6 +100,9 @@ static int file_open(URLContext *h, const char *filename, int flags)
     if (fd == -1)
         return AVERROR(errno);
     h->priv_data = (void *) (intptr_t) fd;
+
+    h->is_streamed = !fstat(fd, &st) && S_ISFIFO(st.st_mode);
+
     return 0;
 }
 
@@ -99,7 +113,7 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
     if (whence == AVSEEK_SIZE) {
         struct stat st;
         int ret = fstat(fd, &st);
-        return ret < 0 ? AVERROR(errno) : st.st_size;
+        return ret < 0 ? AVERROR(errno) : (S_ISFIFO(st.st_mode) ? 0 : st.st_size);
     }
     return lseek(fd, pos, whence);
 }

@@ -28,6 +28,8 @@
 #include "intrax8.h"
 #include "vc1dsp.h"
 
+#define AC_VLC_BITS 9
+
 /** Markers used in VC-1 AP frame data */
 //@{
 enum VC1Code {
@@ -223,6 +225,7 @@ typedef struct VC1Context{
     int profile;          ///< 2bits, Profile
     int frmrtq_postproc;  ///< 3bits,
     int bitrtq_postproc;  ///< 5bits, quantized framerate-based postprocessing strength
+    int max_coded_width, max_coded_height;
     int fastuvmc;         ///< Rounding of qpel vector to hpel ? (not in Simple)
     int extended_mv;      ///< Ext MV in P/B (not in Simple)
     int dquant;           ///< How qscale varies with MBs, 2bits (not in Simple)
@@ -347,7 +350,7 @@ typedef struct VC1Context{
     uint8_t fourmvbp;
     uint8_t* fieldtx_plane;
     int fieldtx_is_raw;
-    int8_t zzi_8x8[64];
+    uint8_t zzi_8x8[64];
     uint8_t *blk_mv_type_base, *blk_mv_type;    ///< 0: frame MV, 1: field MV (interlaced frame)
     uint8_t *mv_f_base, *mv_f[2];               ///< 0: MV obtained from same field, 1: opposite field
     uint8_t *mv_f_last_base, *mv_f_last[2];
@@ -391,6 +394,8 @@ typedef struct VC1Context{
     uint8_t bfraction_lut_index; ///< Index for BFRACTION value (see Table 40, reproduced into ff_vc1_bfraction_lut[])
     uint8_t broken_link;         ///< Broken link flag (BROKEN_LINK syntax element)
     uint8_t closed_entry;        ///< Closed entry point flag (CLOSED_ENTRY syntax element)
+
+    int end_mb_x;                ///< Horizontal macroblock limit (used only by mss2)
 
     int parse_only;              ///< Context is used within parser
 
@@ -441,11 +446,17 @@ static av_always_inline int vc1_unescape_buffer(const uint8_t *src, int size, ui
  * @param gb GetBit context initialized from Codec context extra_data
  * @return Status
  */
-int vc1_decode_sequence_header(AVCodecContext *avctx, VC1Context *v, GetBitContext *gb);
+int ff_vc1_decode_sequence_header(AVCodecContext *avctx, VC1Context *v, GetBitContext *gb);
 
-int vc1_decode_entry_point(AVCodecContext *avctx, VC1Context *v, GetBitContext *gb);
+int ff_vc1_decode_entry_point(AVCodecContext *avctx, VC1Context *v, GetBitContext *gb);
 
-int vc1_parse_frame_header    (VC1Context *v, GetBitContext *gb);
-int vc1_parse_frame_header_adv(VC1Context *v, GetBitContext *gb);
+int ff_vc1_parse_frame_header    (VC1Context *v, GetBitContext *gb);
+int ff_vc1_parse_frame_header_adv(VC1Context *v, GetBitContext *gb);
+int ff_vc1_init_common(VC1Context *v);
+
+av_cold int  ff_vc1_decode_init_alloc_tables(VC1Context *v);
+av_cold void ff_vc1_init_transposed_scantables(VC1Context *v);
+av_cold int  ff_vc1_decode_end(AVCodecContext *avctx);
+void ff_vc1_decode_blocks(VC1Context *v);
 
 #endif /* AVCODEC_VC1_H */

@@ -32,6 +32,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/audioconvert.h"
 #include "libavfilter/avfilter.h"
 #include "libavfilter/avfiltergraph.h"
 #include "libavfilter/buffersink.h"
@@ -41,6 +42,7 @@
 typedef struct {
     AVClass *class;          ///< class for private options
     char          *graph_str;
+    char          *dump_graph;
     AVFilterGraph *graph;
     AVFilterContext **sinks;
     int *sink_stream_map;
@@ -77,8 +79,7 @@ av_cold static int lavfi_read_close(AVFormatContext *avctx)
     return 0;
 }
 
-av_cold static int lavfi_read_header(AVFormatContext *avctx,
-                                     AVFormatParameters *ap)
+av_cold static int lavfi_read_header(AVFormatContext *avctx)
 {
     LavfiContext *lavfi = avctx->priv_data;
     AVFilterInOut *input_links = NULL, *output_links = NULL, *inout;
@@ -94,8 +95,8 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx,
 
     avfilter_register_all();
 
-    buffersink = avfilter_get_by_name("buffersink");
-    abuffersink = avfilter_get_by_name("abuffersink");
+    buffersink = avfilter_get_by_name("ffbuffersink");
+    abuffersink = avfilter_get_by_name("ffabuffersink");
 
     if (!lavfi->graph_str)
         lavfi->graph_str = av_strdup(avctx->filename);
@@ -190,28 +191,22 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx,
         if (type == AVMEDIA_TYPE_VIDEO) {
             AVBufferSinkParams *buffersink_params = av_buffersink_params_alloc();
 
-#if FF_API_OLD_VSINK_API
-            ret = avfilter_graph_create_filter(&sink, buffersink,
-                                               inout->name, NULL,
-                                               pix_fmts, lavfi->graph);
-#else
             buffersink_params->pixel_fmts = pix_fmts;
             ret = avfilter_graph_create_filter(&sink, buffersink,
                                                inout->name, NULL,
                                                buffersink_params, lavfi->graph);
-#endif
             av_freep(&buffersink_params);
 
             if (ret < 0)
                 goto end;
         } else if (type == AVMEDIA_TYPE_AUDIO) {
-            enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16, -1 };
-            const int packing_fmts[] = { AVFILTER_PACKED, -1 };
-            const int64_t *chlayouts = avfilter_all_channel_layouts;
+            enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_U8,
+                                                  AV_SAMPLE_FMT_S16,
+                                                  AV_SAMPLE_FMT_S32,
+                                                  AV_SAMPLE_FMT_FLT,
+                                                  AV_SAMPLE_FMT_DBL, -1 };
             AVABufferSinkParams *abuffersink_params = av_abuffersink_params_alloc();
             abuffersink_params->sample_fmts = sample_fmts;
-            abuffersink_params->packing_fmts = packing_fmts;
-            abuffersink_params->channel_layouts = chlayouts;
 
             ret = avfilter_graph_create_filter(&sink, abuffersink,
                                                inout->name, NULL,
@@ -230,6 +225,13 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx,
     if ((ret = avfilter_graph_config(lavfi->graph, avctx)) < 0)
         FAIL(ret);
 
+    if (lavfi->dump_graph) {
+        char *dump = avfilter_graph_dump(lavfi->graph, lavfi->dump_graph);
+        fputs(dump, stderr);
+        fflush(stderr);
+        av_free(dump);
+    }
+
     /* fill each stream with the information in the corresponding sink */
     for (i = 0; i < avctx->nb_streams; i++) {
         AVFilterLink *link = lavfi->sinks[lavfi->stream_sink_map[i]]->inputs[0];
@@ -237,7 +239,7 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx,
         st->codec->codec_type = link->type;
         avpriv_set_pts_info(st, 64, link->time_base.num, link->time_base.den);
         if (link->type == AVMEDIA_TYPE_VIDEO) {
-            st->codec->codec_id   = CODEC_ID_RAWVIDEO;
+            st->codec->codec_id   = AV_CODEC_ID_RAWVIDEO;
             st->codec->pix_fmt    = link->format;
             st->codec->time_base  = link->time_base;
             st->codec->width      = link->w;
@@ -245,12 +247,16 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx,
             st       ->sample_aspect_ratio =
             st->codec->sample_aspect_ratio = link->sample_aspect_ratio;
         } else if (link->type == AVMEDIA_TYPE_AUDIO) {
-            st->codec->codec_id    = CODEC_ID_PCM_S16LE;
+            st->codec->codec_id    = av_get_pcm_codec(link->format, -1);
             st->codec->channels    = av_get_channel_layout_nb_channels(link->channel_layout);
             st->codec->sample_fmt  = link->format;
             st->codec->sample_rate = link->sample_rate;
             st->codec->time_base   = link->time_base;
             st->codec->channel_layout = link->channel_layout;
+            if (st->codec->codec_id == AV_CODEC_ID_NONE)
+                av_log(avctx, AV_LOG_ERROR,
+                       "Could not find PCM codec for sample format %s.\n",
+                       av_get_sample_fmt_name(link->format));
         }
     }
 
@@ -329,6 +335,7 @@ static int lavfi_read_packet(AVFormatContext *avctx, AVPacket *pkt)
 
 static const AVOption options[] = {
     { "graph", "Libavfilter graph", OFFSET(graph_str),  AV_OPT_TYPE_STRING, {.str = NULL }, 0,  0, DEC },
+    { "dumpgraph", "Dump graph to stderr", OFFSET(dump_graph), AV_OPT_TYPE_STRING, {.str = NULL}, 0,  0, DEC },
     { NULL },
 };
 

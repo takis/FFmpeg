@@ -49,7 +49,7 @@ static av_cold int oma_write_header(AVFormatContext *s)
     }
 
     /* Metadata; OpenMG does not support ID3v2.4 */
-    ff_id3v2_write(s, 3, ID3v2_EA3_MAGIC);
+    ff_id3v2_write_simple(s, 3, ID3v2_EA3_MAGIC);
 
     ffio_wfourcc(s->pb, "EA3\0");
     avio_w8(s->pb, EA3_HEADER_SIZE >> 7);
@@ -61,7 +61,7 @@ static av_cold int oma_write_header(AVFormatContext *s)
     switch(format->codec_tag) {
     case OMA_CODECID_ATRAC3:
         if (format->channels != 2) {
-            av_log(s, AV_LOG_ERROR, "ATRAC3 in OMA is only supported with 2 channels");
+            av_log(s, AV_LOG_ERROR, "ATRAC3 in OMA is only supported with 2 channels\n");
             return AVERROR(EINVAL);
         }
         if (format->extradata_size == 14) /* WAV format extradata */
@@ -98,7 +98,7 @@ AVOutputFormat ff_oma_muxer = {
     .long_name         = NULL_IF_CONFIG_SMALL("Sony OpenMG audio"),
     .mime_type         = "audio/x-oma",
     .extensions        = "oma",
-    .audio_codec       = CODEC_ID_ATRAC3,
+    .audio_codec       = AV_CODEC_ID_ATRAC3,
     .write_header      = oma_write_header,
     .write_packet      = ff_raw_write_packet,
     .codec_tag         = (const AVCodecTag* const []){ff_oma_codec_tags, 0},
